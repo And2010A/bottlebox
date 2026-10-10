@@ -35,12 +35,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force sf | Out-Null
-          # sse41-popcnt працює майже на будь-якому процесорі; якщо його немає в релізі — загальна збірка
-          foreach ($pattern in "stockfish-windows-x86-64-sse41-popcnt.zip", "stockfish-windows-x86-64.zip") {
-            gh release download --repo official-stockfish/Stockfish --pattern $pattern --dir sf --clobber
-            if ($LASTEXITCODE -eq 0) { break }
+          $names = gh release view --repo official-stockfish/Stockfish --json assets --jq '.assets[].name'
+          if ($LASTEXITCODE -ne 0) { throw "cannot list Stockfish release assets" }
+          Write-Host "Assets:`n$($names -join "`n")"
+          # sse41-popcnt / avx2 працюють майже на будь-якому процесорі; далі — будь-яка 64-бітна збірка під Windows
+          $asset = $null
+          foreach ($re in 'windows-x86-64-sse41-popcnt\.zip$', 'windows-x86-64-avx2\.zip$', 'windows-x86-64\.zip$', 'windows.*x86-64.*\.zip$', 'windows.*x86-64.*\.tar$') {
+            $asset = $names | Where-Object { $_ -match $re } | Select-Object -First 1
+            if ($asset) { break }
           }
-          Expand-Archive sf/*.zip -DestinationPath sf/unzipped
+          if (-not $asset) { throw "no Windows Stockfish build in the latest release" }
+          Write-Host "Using $asset"
+          gh release download --repo official-stockfish/Stockfish --pattern $asset --dir sf --clobber
+          if ($LASTEXITCODE -ne 0) { throw "download failed" }
+          New-Item -ItemType Directory -Force sf/unzipped | Out-Null
+          if ($asset -like '*.zip') { Expand-Archive "sf/$asset" -DestinationPath sf/unzipped }
+          else { tar -xf "sf/$asset" -C sf/unzipped }
           $exe = Get-ChildItem sf/unzipped -Recurse -Filter "stockfish*.exe" | Select-Object -First 1
           if (-not $exe) { throw "stockfish exe not found in the release archive" }
           New-Item -ItemType Directory -Force package | Out-Null
