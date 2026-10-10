@@ -182,6 +182,19 @@ class Snapshot:
 class Play:
     """A complete simulated play of a beatmap."""
 
+    ruleset = "osu"
+
+    @staticmethod
+    def acc_of(counts):
+        return accuracy(*counts)
+
+    @staticmethod
+    def grade_of(counts):
+        return grade_of(*counts)
+
+    def max_combo_possible(self):
+        return self.bm.max_combo()
+
     def __init__(self, beatmap, mode="grade", target="SS", skill=7.0, seed=None):
         self.bm = beatmap
         self.mode = mode

@@ -119,3 +119,28 @@ def test_osz_loading(tmp_path):
 def test_rejects_other_modes():
     with pytest.raises(BeatmapError):
         Beatmap(demo_osu().replace("Mode: 0", "Mode: 3"))
+
+
+def test_catch_grade_targets_and_conversion():
+    from osubot.catch import GRADES as CATCH_GRADES, CatchPlay
+    for text in (demo_osu(), demo_osu().replace("Mode: 0", "Mode: 2")):
+        bm = Beatmap(text)
+        for g in CATCH_GRADES:
+            p = CatchPlay(bm, "grade", g, seed=4)
+            assert p.grade == g, (g, p.final.counts)
+        kinds = {o.kind for o in p.objects}
+        assert {"fruit", "droplet", "tiny", "banana"} <= kinds
+        assert any(o.hyper for o in p.objects)
+
+
+def test_catch_skill_scales():
+    from osubot.catch import CatchPlay
+    bm = Beatmap(demo_osu())
+    low = sum(CatchPlay(bm, "skill", skill=2, seed=k).accuracy for k in range(4))
+    high = sum(CatchPlay(bm, "skill", skill=10, seed=k).accuracy for k in range(4))
+    assert low < high
+
+
+def test_taiko_mania_rejected_with_message():
+    with pytest.raises(BeatmapError, match="taiko"):
+        Beatmap(demo_osu().replace("Mode: 0", "Mode: 1"))

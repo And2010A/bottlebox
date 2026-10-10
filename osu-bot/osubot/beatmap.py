@@ -15,6 +15,10 @@ MOD_RATE = {"DT": 1.5, "HT": 0.75}
 MOD_SCORE = {"EZ": 0.5, "HT": 0.3, "HR": 1.06, "DT": 1.12, "NF": 0.5}
 
 
+MODE_NAMES = {0: "osu!", 1: "osu!taiko", 2: "osu!catch", 3: "osu!mania"}
+PLAYABLE_MODES = (0, 2)
+
+
 class BeatmapError(Exception):
     pass
 
@@ -98,7 +102,8 @@ def list_difficulties(path):
         entries = [(parse_info(text), src, text)]
     else:
         raise BeatmapError("Підтримуються лише файли .osu та .osz")
-    entries.sort(key=lambda e: (e[0].mode != 0, e[0].od, e[0].ar, e[0].version))
+    entries.sort(key=lambda e: (e[0].mode not in PLAYABLE_MODES, e[0].mode, e[0].od, e[0].ar,
+                                e[0].version))
     return entries
 
 
@@ -458,8 +463,9 @@ class Slider(HitObject):
 class Beatmap:
     def __init__(self, text, mods=(), source=None):
         info = BeatmapInfo(text)
-        if info.mode != 0:
-            raise BeatmapError("Підтримується лише режим osu!standard (не taiko/catch/mania)")
+        if info.mode not in PLAYABLE_MODES:
+            raise BeatmapError(f"Режим {MODE_NAMES.get(info.mode, info.mode)} не підтримується "
+                               "(бот грає osu! та osu!catch)")
         self.info = info
         self.source = source
         self.mods = set(mods)
