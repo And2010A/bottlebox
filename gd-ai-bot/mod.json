@@ -8,7 +8,7 @@
 	},
 	"id": "and2010a.ai-bot",
 	"name": "AI Bot",
-	"version": "v0.3.1",
+	"version": "v0.3.2",
 	"developer": "And2010A",
 	"description": "A self-learning bot that teaches itself to beat levels",
 	"tags": [
@@ -43,14 +43,15 @@
 		"speed": {
 			"type": "float",
 			"name": "Game speed",
-			"description": "Прискорення гри, щоб бот тренувався швидше. 1 = звичайна швидкість. Діє тільки поки бот увімкнений. На слабкому ПК реальна швидкість може бути меншою за обрану.",
+			"description": "Прискорення гри, щоб бот тренувався швидше: від x0.25 до x1000. Діє тільки поки бот увімкнений. Насправді гра йде так швидко, як встигає твій ПК: справжню швидкість видно в куті екрана («real x…»). Гра при цьому не зависає.",
 			"default": 1.0,
 			"min": 0.25,
-			"max": 20.0,
+			"max": 1000.0,
 			"control": {
-				"slider": true,
-				"slider-step": 0.25,
-				"arrow-step": 0.25
+				"slider": false,
+				"arrow-step": 1.0,
+				"big-arrows": true,
+				"big-arrow-step": 50.0
 			}
 		},
 		"reaction-ms": {

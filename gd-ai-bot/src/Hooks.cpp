@@ -6,10 +6,29 @@
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 
+#include <algorithm>
+#include <chrono>
+
 using namespace geode::prelude;
 using namespace aibot;
 
 class $modify(AIBotGameLayer, GJBaseGameLayer) {
+    // With the game sped up, cap how much game time one frame simulates, so
+    // very high speeds stay responsive instead of freezing.
+    void update(float dt) {
+        auto playLayer = PlayLayer::get();
+        auto& bot = Bot::get();
+        if (!playLayer || static_cast<GJBaseGameLayer*>(playLayer) != this || !bot.speedBoosted(playLayer)) {
+            GJBaseGameLayer::update(dt);
+            return;
+        }
+        float step = std::min(dt, bot.physicsBudget());
+        auto start = std::chrono::steady_clock::now();
+        GJBaseGameLayer::update(step);
+        double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        bot.reportPhysics(ms, step, dt);
+    }
+
     // Runs once per physics tick (240 per second) before inputs are applied,
     // which is where the bot decides whether to hold.
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {

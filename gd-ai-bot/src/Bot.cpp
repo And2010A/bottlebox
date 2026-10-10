@@ -366,7 +366,12 @@ void Bot::onTick(PlayLayer* layer) {
     m_forceSync = false;
 
     m_attemptPercent = layer->getCurrentPercent();
-    if (tick % 24 == 0) this->updateHud(layer);
+    // At high speed many ticks pass per frame: refresh the text ~10x a second.
+    double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (now - m_lastHudUpdate > 0.1) {
+        m_lastHudUpdate = now;
+        this->updateHud(layer);
+    }
 }
 
 uint8_t Bot::decideHuman(PlayLayer* layer, int tick, bool dual, bool twoPlayers) {
@@ -861,6 +866,29 @@ void Bot::openFolder() {
     geode::utils::file::openFolder(saveDir());
 }
 
+bool Bot::speedBoosted(PlayLayer* layer) const {
+    return layer && layer == m_layer && m_config.enabled && m_config.speed > 1.f;
+}
+
+void Bot::reportPhysics(double milliseconds, float simulated, float requested) {
+    // How many ticks this PC simulates per millisecond, smoothed.
+    double ticks = simulated * kTicksPerSecond;
+    if (milliseconds > 0.05 && ticks >= 1.0) {
+        double rate = ticks / milliseconds;
+        m_ticksPerMs = m_ticksPerMs <= 0.0 ? rate : m_ticksPerMs * 0.9 + rate * 0.1;
+    }
+    // Spend at most ~25 ms of each frame on physics.
+    if (m_ticksPerMs > 0.0) {
+        m_budgetTicks = (float)std::clamp(m_ticksPerMs * 25.0, 4.0, 200000.0);
+    }
+    // Real speed: game seconds simulated per real second.
+    float scale = CCDirector::get()->getScheduler()->getTimeScale();
+    float realDt = scale > 0.f ? requested / scale : requested;
+    if (realDt > 0.f) {
+        m_realSpeed = m_realSpeed * 0.9f + 0.1f * (simulated / realDt);
+    }
+}
+
 void Bot::applySpeed() {
     static bool s_applied = false;
     bool want = m_layer && m_config.enabled && m_config.speed != 1.f;
@@ -884,7 +912,10 @@ std::string Bot::statusText() const {
         modeLabel(m_config.mode),
         m_config.mode == LearnMode::Macro ? "" : (m_config.learning ? " (learning)" : " (showing)")
     );
-    if (m_config.speed != 1.f) text += fmt::format("  x{:g}", m_config.speed);
+    if (m_config.speed != 1.f) {
+        text += fmt::format("  x{:g}", m_config.speed);
+        if (m_config.speed > 1.f && m_layer) text += fmt::format(" (real x{:.0f})", m_realSpeed);
+    }
 
     if (m_brainLoaded && m_config.mode != LearnMode::Macro) {
         text += fmt::format(

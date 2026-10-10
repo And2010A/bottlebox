@@ -59,6 +59,13 @@ public:
     void resetLevelMemory();
     void resetBrain();
     void applySpeed();
+
+    // Game speed above x1: each frame may only spend a limited time on
+    // physics, so very high speeds (up to x1000) run as fast as the PC can
+    // without freezing the game.
+    bool speedBoosted(PlayLayer* layer) const;
+    float physicsBudget() const { return m_budgetTicks / (float)kTicksPerSecond; }
+    void reportPhysics(double milliseconds, float simulated, float requested);
     void openFolder();
     std::string statusText() const;
 
@@ -153,6 +160,10 @@ private:
     int m_lastTick = -1;
     float m_attemptPercent = 0.f;
     std::string m_lastEvent;
+    float m_budgetTicks = 240.f;
+    double m_ticksPerMs = 0.0;
+    float m_realSpeed = 1.f;
+    double m_lastHudUpdate = 0.0;
 };
 
 }
