@@ -4,6 +4,7 @@
 #include "Memory.hpp"
 #include "Sensors.hpp"
 
+#include <array>
 #include <filesystem>
 #include <future>
 #include <random>
@@ -113,7 +114,27 @@ private:
     float m_lastX[2] = {0.f, 0.f};
     float m_dx[2] = {0.f, 0.f};
 
+    // Exact player state at the start of every tick of this attempt and of
+    // the best run. GD's physics does not always repeat perfectly (above
+    // all when sped up), so replays of the best run are nudged back onto
+    // it; otherwise a ship drifts and dies before the spot being fixed.
+    struct PlayerState {
+        float x = 0.f, y = 0.f, rotation = 0.f;
+        double yVelocity = 0.0;
+    };
+    using TickState = std::array<PlayerState, 2>;
+    std::vector<TickState> m_runStates;
+    std::vector<TickState> m_bestStates;
+    int m_syncFixes = 0;
+    void syncToRun(PlayLayer* layer, int tick, bool dual, std::vector<TickState> const& run);
+    void recordStates(PlayLayer* layer, int tick, bool dual);
+    static void writeStates(std::filesystem::path const& path, std::vector<TickState> const& states);
+    static std::vector<TickState> readStates(std::filesystem::path const& path);
+    void saveStates() const;
+    void loadStates();
+
     std::vector<uint8_t> m_macro;
+    std::vector<TickState> m_macroStates;
     std::string m_macroKey;
     std::string m_macroFile;
 

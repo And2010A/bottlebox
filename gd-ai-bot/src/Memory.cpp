@@ -358,6 +358,7 @@ void MemoryLearner::beginAttempt(bool learning, std::mt19937& rng) {
     m_exploring = false;
     m_state = 0;
     m_usingPlan = false;
+    m_offBestPath = false;
     m_idea = nullptr;
     if (m_backoff <= 0) m_backoff = kBaseBackoff;
 
@@ -444,7 +445,10 @@ MemoryLearner::Input MemoryLearner::decide(int tick, int modeP1, int modeP2, boo
     // Ticks normally arrive one by one; fill any gap with the held state so
     // that index == tick holds for the recording.
     while ((int)m_current.size() < tick) {
-        this->push(m_current.empty() ? 0 : m_current.back(), modes);
+        Input filler = m_current.empty() ? 0 : m_current.back();
+        int at = (int)m_current.size();
+        if (at >= (int)m_best.size() || filler != m_best[at]) m_offBestPath = true;
+        this->push(filler, modes);
     }
     if ((int)m_current.size() > tick) {
         // Same tick seen again (should not happen) - repeat the decision.
@@ -498,6 +502,7 @@ MemoryLearner::Input MemoryLearner::decide(int tick, int modeP1, int modeP2, boo
         }
     }
 
+    if (tick >= (int)m_best.size() || input != m_best[tick]) m_offBestPath = true;
     this->push(input, modes);
     return input;
 }
@@ -559,6 +564,17 @@ bool MemoryLearner::onDeath(int tick, float percent) {
         m_backoff = std::min(std::max(m_bestTick, kBaseBackoff), (int)(m_backoff * 1.6f) + 12);
     }
     return false;
+}
+
+void MemoryLearner::adoptCurrentAsBest(int tick) {
+    if (!m_learning || m_completed || tick <= 0) return;
+    m_best = m_current;
+    m_bestModes = m_currentModes;
+    m_bestTick = tick;
+    m_backoff = kBaseBackoff;
+    m_failsAtFrontier = 0;
+    m_deathsAtSpot = 1;
+    this->planFixes(tick);
 }
 
 void MemoryLearner::onComplete(int tick) {

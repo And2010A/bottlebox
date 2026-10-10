@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <cstring>
 #include <fstream>
 
 using namespace geode::prelude;
@@ -195,6 +196,7 @@ void Bot::onAttemptStart(PlayLayer* layer) {
         this->saveMemory();
         m_levelKey = key;
         m_memory.load(this->memoryPath());
+        this->loadStates();
         m_learnedUpTo = 0;
         m_humanBest = 0.f;
         m_stuckAttempts = 0;
@@ -210,6 +212,8 @@ void Bot::onAttemptStart(PlayLayer* layer) {
     m_runSamples[0].clear();
     m_runSamples[1].clear();
     m_runInputs.clear();
+    m_runStates.clear();
+    m_syncFixes = 0;
     m_lastX[0] = m_lastX[1] = 0.f;
     m_dx[0] = m_dx[1] = 0.f;
 
@@ -312,6 +316,14 @@ void Bot::onTick(PlayLayer* layer) {
         m_lastX[p] = x;
     }
 
+    // Keep replays of a known run exactly on it (see PlayerState).
+    if (m_config.mode == LearnMode::Memory && m_memory.onBestPath()) {
+        this->syncToRun(layer, tick, dual, m_bestStates);
+    }
+    else if (m_config.mode == LearnMode::Macro) {
+        this->syncToRun(layer, tick, dual, m_macroStates);
+    }
+
     uint8_t want = 0;
     if (m_config.mode == LearnMode::Macro) {
         want = tick < (int)m_macro.size() ? m_macro[tick] : 0;
@@ -341,6 +353,8 @@ void Bot::onTick(PlayLayer* layer) {
         this->record(tick, 0, inputs1, mode1, want & 1);
         if (twoPlayers) this->record(tick, 1, inputs2, mode2, (want & 2) != 0);
     }
+
+    this->recordStates(layer, tick, dual);
 
     while ((int)m_runInputs.size() < tick) {
         m_runInputs.push_back(m_runInputs.empty() ? 0 : m_runInputs.back());
@@ -472,6 +486,7 @@ void Bot::onDeath(PlayLayer* layer) {
     switch (m_config.mode) {
         case LearnMode::Memory: {
             if (m_memory.onDeath(m_lastTick, percent)) {
+                m_bestStates = m_runStates;
                 m_lastEvent = fmt::format("New best: {:.1f}%", m_memory.bestPercent());
                 if (m_config.learning && unsafeFrom > m_learnedUpTo) {
                     int added = this->learnFromRun(m_learnedUpTo, unsafeFrom, 1);
@@ -480,6 +495,15 @@ void Bot::onDeath(PlayLayer* layer) {
                 }
                 this->saveMemory();
                 this->logProgress("new best", percent);
+            }
+            else if (m_config.learning && m_bestStates.empty() && m_memory.onBestPath() && m_lastTick > 0) {
+                // The remembered best was saved without exact positions (an
+                // older version) and this replay of it drifted off and died
+                // earlier: build on what can actually be repeated.
+                m_memory.adoptCurrentAsBest(m_lastTick);
+                m_bestStates = m_runStates;
+                m_lastEvent = "Old record could not be replayed exactly - continuing from here";
+                this->saveMemory();
             }
             else if (m_memory.attempts() % 25 == 0) {
                 this->saveMemory();
@@ -533,6 +557,7 @@ void Bot::onComplete(PlayLayer* layer) {
 
     switch (m_config.mode) {
         case LearnMode::Memory: {
+            if (!m_memory.completed() && m_config.learning) m_bestStates = m_runStates;
             m_memory.onComplete(m_lastTick);
             this->saveMemory();
             break;
@@ -587,7 +612,8 @@ void Bot::saveMacro(PlayLayer* layer) {
     for (auto const& entry : std::filesystem::directory_iterator(macroDir(), ec)) {
         try {
             auto name = entry.path().filename().string();
-            if (name.ends_with(suffix)) std::filesystem::remove(entry.path(), ec);
+            auto statesSuffix = suffix.substr(0, suffix.size() - 5) + ".states";
+            if (name.ends_with(suffix) || name.ends_with(statesSuffix)) std::filesystem::remove(entry.path(), ec);
         }
         catch (...) {}
     }
@@ -626,6 +652,9 @@ void Bot::saveMacro(PlayLayer* layer) {
     auto fileName = fmt::format("{} {}", safeFileName(m_levelName), suffix);
     std::ofstream out(macroDir() / fileName, std::ios::trunc);
     out << root.dump(matjson::NO_INDENTATION);
+    // The exact positions too, so the macro replays reliably (optional file).
+    auto statesPath = macroDir() / fileName;
+    writeStates(statesPath.replace_extension(".states"), m_runStates);
     if (out) {
         m_macroFile = fileName;
         m_macroKey.clear(); // reload on the next Macro attempt
@@ -634,6 +663,7 @@ void Bot::saveMacro(PlayLayer* layer) {
 
 void Bot::loadMacro() {
     m_macro.clear();
+    m_macroStates.clear();
     m_macroFile.clear();
     m_macroKey = m_levelKey;
 
@@ -675,6 +705,8 @@ void Bot::loadMacro() {
         }
         std::fill(m_macro.begin() + last, m_macro.end(), state);
         m_macroFile = name;
+        auto statesPath = entry.path();
+        m_macroStates = readStates(statesPath.replace_extension(".states"));
         return;
     }
 }
@@ -716,6 +748,72 @@ void Bot::saveBrain() {
 void Bot::saveMemory() {
     if (!m_levelKey.empty() && m_memory.attempts() > 0) {
         m_memory.save(this->memoryPath());
+        this->saveStates();
+    }
+}
+
+namespace {
+    constexpr char kStatesMagic[8] = {'G', 'D', 'A', 'I', 'S', 'T', 'A', '1'};
+}
+
+void Bot::writeStates(std::filesystem::path const& path, std::vector<TickState> const& states) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) return;
+    uint32_t count = (uint32_t)states.size();
+    out.write(kStatesMagic, sizeof(kStatesMagic));
+    out.write(reinterpret_cast<char const*>(&count), sizeof(count));
+    out.write(reinterpret_cast<char const*>(states.data()), (std::streamsize)count * sizeof(TickState));
+}
+
+std::vector<Bot::TickState> Bot::readStates(std::filesystem::path const& path) {
+    std::ifstream in(path, std::ios::binary);
+    char magic[8];
+    uint32_t count;
+    if (!in || !in.read(magic, sizeof(magic)) || std::memcmp(magic, kStatesMagic, sizeof(magic)) != 0) return {};
+    if (!in.read(reinterpret_cast<char*>(&count), sizeof(count)) || count > 10'000'000) return {};
+    std::vector<TickState> states(count);
+    if (!in.read(reinterpret_cast<char*>(states.data()), (std::streamsize)count * sizeof(TickState))) return {};
+    return states;
+}
+
+void Bot::saveStates() const {
+    auto path = this->memoryPath();
+    writeStates(path.replace_extension(".states"), m_bestStates);
+}
+
+void Bot::loadStates() {
+    auto path = this->memoryPath();
+    m_bestStates = readStates(path.replace_extension(".states"));
+}
+
+void Bot::recordStates(PlayLayer* layer, int tick, bool dual) {
+    TickState state{};
+    PlayerObject* players[2] = {layer->m_player1, layer->m_player2};
+    for (int p = 0; p < (dual ? 2 : 1); p++) {
+        auto player = players[p];
+        state[p] = {player->m_position.x, player->m_position.y, player->getRotation(), player->m_yVelocity};
+    }
+    while ((int)m_runStates.size() < tick) m_runStates.push_back(state);
+    if ((int)m_runStates.size() == tick) m_runStates.push_back(state);
+}
+
+void Bot::syncToRun(PlayLayer* layer, int tick, bool dual, std::vector<TickState> const& run) {
+    if (tick >= (int)run.size()) return;
+    PlayerObject* players[2] = {layer->m_player1, layer->m_player2};
+    for (int p = 0; p < (dual ? 2 : 1); p++) {
+        auto player = players[p];
+        auto const& want = run[tick][p];
+        float dx = std::abs(player->m_position.x - want.x);
+        float dy = std::abs(player->m_position.y - want.y);
+        double dv = std::abs(player->m_yVelocity - want.yVelocity);
+        if (dx < 0.001f && dy < 0.001f && dv < 1e-6) continue;
+        // A big difference is not drift (another start, a changed level).
+        if (dx + dy > 60.f) continue;
+        player->m_position = {want.x, want.y};
+        player->setPosition({want.x, want.y});
+        player->setRotation(want.rotation);
+        player->m_yVelocity = want.yVelocity;
+        m_syncFixes++;
     }
 }
 
@@ -727,7 +825,10 @@ void Bot::resetLevelMemory() {
     if (!m_levelKey.empty()) {
         std::error_code ec;
         std::filesystem::remove(this->memoryPath(), ec);
+        auto states = this->memoryPath();
+        std::filesystem::remove(states.replace_extension(".states"), ec);
     }
+    m_bestStates.clear();
     // The current attempt was built on the old memory.
     if (m_config.mode == LearnMode::Memory) m_attemptPrepared = false;
     m_lastEvent = "Level memory erased";
@@ -808,6 +909,7 @@ std::string Bot::statusText() const {
                 "\nAttempt {} | Best {:.1f}% | Now {:.1f}%",
                 m_memory.attempts(), m_memory.bestPercent(), m_attemptPercent
             );
+            if (m_syncFixes > 0) text += fmt::format(" | sync fixes {}", m_syncFixes);
             if (m_memory.completed()) {
                 text += "\nLevel beaten - replaying the winning run";
             }

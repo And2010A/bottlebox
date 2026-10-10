@@ -45,6 +45,9 @@ public:
     // Returns true if this attempt went further than any before.
     bool onDeath(int tick, float percent);
     void onComplete(int tick);
+    // Makes this attempt the run to build on, even though it died earlier
+    // than the remembered best (used when the best cannot be reproduced).
+    void adoptCurrentAsBest(int tick);
 
     // What the current attempt is testing, for the HUD ("jump earlier"...),
     // or null when it is not testing a specific fix.
@@ -61,6 +64,9 @@ public:
     bool guided() const { return m_guided; }
     // The inputs of the attempt so far, one per tick.
     std::vector<Input> const& currentRun() const { return m_current; }
+    // True while every press so far matches the best run exactly, so the
+    // player should be exactly where the best run had them.
+    bool onBestPath() const { return !m_offBestPath; }
 
 private:
     // One idea for fixing the latest death, tested on a single attempt.
@@ -107,6 +113,7 @@ private:
     Fix m_activeFix{};
     bool m_twoPlayers = false;
 
+    bool m_offBestPath = false;
     bool m_exploring = false;
     Input m_state = 0;
     int m_nextSwitch[2] = {0, 0};
