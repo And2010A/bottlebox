@@ -809,8 +809,9 @@ void Bot::syncToRun(PlayLayer* layer, int tick, bool dual, std::vector<TickState
         if (dx < 0.001f && dy < 0.001f && dv < 1e-6) continue;
         // A big difference is not drift (another start, a changed level).
         if (dx + dy > 60.f) continue;
-        player->m_position = {want.x, want.y};
-        player->setPosition({want.x, want.y});
+        auto position = CCPoint(want.x, want.y);
+        player->m_position = position;
+        player->setPosition(position);
         player->setRotation(want.rotation);
         player->m_yVelocity = want.yVelocity;
         m_syncFixes++;

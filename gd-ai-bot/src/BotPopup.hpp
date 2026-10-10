@@ -13,7 +13,7 @@ public:
     static BotPopup* create();
 
 protected:
-    bool init();
+    bool init() override;
     void refresh();
     void onClose(cocos2d::CCObject* sender) override;
 
