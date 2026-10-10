@@ -110,37 +110,53 @@ def polar(r, a_deg):
     return CX + r * math.cos(a), CY + r * math.sin(a)
 
 
-def light_trail(r, a_from, a_to, w_max, t):
-    """Glowing swing trail along the rim: thick and bright at a_from (the
-    penlight tip), thin and fading toward a_to."""
-    steps = 70
-    out_glow, out_core, out_edge = [], [], []
-    for i in range(steps):
-        u0, u1 = i / steps, (i + 1) / steps
-        a0 = a_from + (a_to - a_from) * u0
-        a1 = a_from + (a_to - a_from) * u1
-        k = (1 - u0) ** 1.4
-        x0, y0 = polar(r, a0)
-        x1, y1 = polar(r, a1)
-        seg = f'M{f(x0)},{f(y0)} A{r},{r} 0 0 1 {f(x1)},{f(y1)}' if a1 > a0 else f'M{f(x0)},{f(y0)} A{r},{r} 0 0 0 {f(x1)},{f(y1)}'
-        out_glow.append(f'<path d="{seg}" stroke="{PINK_GLOW}" stroke-width="{f(2 + w_max * 1.6 * k)}" opacity="{f(0.55 * k)}" fill="none" stroke-linecap="round"/>')
-        out_edge.append(f'<path d="{seg}" stroke="{CRIMSON}" stroke-width="{f(1 + w_max * 0.9 * k)}" opacity="{f(0.85 * k ** 0.7)}" fill="none" stroke-linecap="round"/>')
-        out_core.append(f'<path d="{seg}" stroke="#ffffff" stroke-width="{f(0.6 + w_max * 0.5 * k)}" opacity="{f(min(1, 0.25 + k))}" fill="none" stroke-linecap="round"/>')
-    out = [f'<g filter="url(#g4)">{"".join(out_glow)}</g>', "".join(out_edge), "".join(out_core)]
+def trail_points():
+    """The path, listed from the bright end (penlight tip) to the faint end.
+    Faint end at the top of the avatar, down the left rim, then a short
+    straight drop into the tip of the upright penlight at the bottom-left."""
+    pts = []
+    tip = (16.5, 196)
+    join = polar(132, 165)
+    for i in range(10):                       # straight drop, tip -> join
+        u = i / 10
+        pts.append((tip[0] + (join[0] - tip[0]) * u, tip[1] + (join[1] - tip[1]) * u))
+    for i in range(61):                       # arc up the left rim to the top
+        a = 165 + (268 - 165) * i / 60
+        pts.append(polar(132, a))
+    return pts
+
+
+def path_d(pts):
+    return "M" + " L".join(f"{f(x)},{f(y)}" for x, y in pts)
+
+
+def light_trail(pts, w_max, t):
+    """Glowing trail: thick and bright at pts[0], thin and fading at pts[-1]."""
+    n = len(pts) - 1
+    glow, edge, core = [], [], []
+    for i in range(n):
+        k = (1 - i / n) ** 1.3
+        seg = f'M{f(pts[i][0])},{f(pts[i][1])} L{f(pts[i + 1][0])},{f(pts[i + 1][1])}'
+        glow.append(f'<path d="{seg}" stroke="{PINK_GLOW}" stroke-width="{f(2 + w_max * 1.6 * k)}" opacity="{f(0.55 * k)}" stroke-linecap="round"/>')
+        edge.append(f'<path d="{seg}" stroke="{CRIMSON}" stroke-width="{f(1 + w_max * 0.9 * k)}" opacity="{f(0.85 * k ** 0.7)}" stroke-linecap="round"/>')
+        core.append(f'<path d="{seg}" stroke="#ffffff" stroke-width="{f(0.6 + w_max * 0.5 * k)}" opacity="{f(min(1, 0.25 + k))}" stroke-linecap="round"/>')
+    out = [f'<g filter="url(#g4)">{"".join(glow)}</g>', "".join(edge), "".join(core)]
     # sparks drifting off the trail
     for j in range(6):
-        u = ((t + j / 6) % 1)
-        a = a_from + (a_to - a_from) * (0.08 + 0.8 * ((j * 0.37) % 1))
-        drift = 4 + 10 * u
-        x, y = polar(r + drift * (1 if j % 2 else -0.4), a)
+        u = (t + j / 6) % 1
+        i = int(n * (0.1 + 0.8 * ((j * 0.37) % 1)))
+        x, y = pts[i]
+        dx, dy = x - CX, y - CY
+        ln = math.hypot(dx, dy) or 1
+        d = (4 + 10 * u) * (1 if j % 2 else -0.4)
         op = math.sin(math.pi * u)
-        out.append(twinkle(x, y, 1.6 + 1.6 * op, "#fff", op))
+        out.append(twinkle(x + dx / ln * d, y + dy / ln * d, 1.6 + 1.6 * op, "#fff", op))
     return "\n".join(out)
 
 
-def penlight_piece(x, y, rot, t, scale=1.0):
+def penlight_piece(x, y, rot, t, scale=1.0, flash=0.0):
     """Penlight lying along the rim; origin = centre of the stick, tip at -y."""
-    glow = pulse(t, 0.0)
+    glow = min(1.6, 0.35 * pulse(t, 0.0) + flash)
     return (f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(scale)})">'
             # glow
             f'<ellipse cx="0" cy="-8" rx="{f(11 + 3 * glow)}" ry="{f(24 + 3 * glow)}" fill="{PINK_GLOW}" opacity="{f(0.35 + 0.2 * glow)}" filter="url(#g8)"/>'
@@ -184,13 +200,36 @@ def star_cluster(t):
 
 
 def decoration(t):
-    p = []
-    # trail from the penlight tip (at ~146 deg) sweeping up the left side
-    p.append(light_trail(131, 140, 256, 10, t))
-    # stick lies along the rim, tip pointing clockwise into the trail
-    at = 124
-    x, y = polar(133, at)
-    p.append(penlight_piece(x, y, at - 180 + 3 * wave(t, 0.1), t, 1.3))
+    """A light starts at the top, runs down the left rim and drops into the
+    upright penlight at the bottom-left, which flashes when it arrives."""
+    pts = trail_points()
+    p = [light_trail(pts, 10, t)]
+
+    travel = 0.55                   # share of the loop the light spends travelling
+    flash = 0.0
+    if t < travel:
+        u = (t / travel) ** 1.5     # speeds up as it falls
+        n = len(pts) - 1
+        head = int(n * (1 - u))
+        tail = min(n, head + 14)
+        seg = pts[head:tail + 1]
+        hx, hy = pts[head]
+        p.append(f'<path d="{path_d(seg)}" stroke="{PINK_GLOW}" stroke-width="12" opacity="0.55" fill="none" stroke-linecap="round" filter="url(#g4)"/>')
+        p.append(f'<path d="{path_d(seg)}" stroke="#fff" stroke-width="4" opacity="0.9" fill="none" stroke-linecap="round" stroke-linejoin="round"/>')
+        p.append(f'<circle cx="{f(hx)}" cy="{f(hy)}" r="13" fill="{PINK_GLOW}" opacity="0.7" filter="url(#g4)"/>')
+        p.append(f'<circle cx="{f(hx)}" cy="{f(hy)}" r="5" fill="#fff"/>')
+        p.append(twinkle(hx, hy, 12, "#fff", 1.0))
+    else:
+        k = (t - travel) / (1 - travel)
+        flash = 1.2 * math.exp(-5 * k)
+
+    # upright penlight, tip at the bottom of the trail
+    tip_x, tip_y = pts[0]
+    scale = 1.3
+    p.append(penlight_piece(tip_x, tip_y + 27 * scale, 0, t, scale, flash))
+    if flash > 0.05:
+        p.append(twinkle(tip_x, tip_y, 6 + 14 * flash, "#fff", min(1, flash)))
+
     p.append(star_cluster(t))
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="288" height="288" viewBox="0 0 288 288">'
             f'{defs()}{"".join(p)}</svg>')
@@ -281,7 +320,7 @@ def save_gif(frames, path):
 
 def main():
     ts = [i / N_FRAMES for i in range(N_FRAMES)]
-    still = 0.0  # frame used for the static images
+    still = 0.62  # penlight flashing, used for the static images
 
     deco = render([(f"deco_{i:02d}", decoration(t)) for i, t in enumerate(ts)], 1)
     save_apng(deco, os.path.join(OUT, "kana-decoration.apng"))
