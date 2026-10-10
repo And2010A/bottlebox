@@ -3,13 +3,14 @@
 ## Avatar decoration
 Two pieces on the diagonal, outer ring only, like Discord's own decorations.
 
-- **Light trail + white penlight** (left side): a glowing trail starts at the top, runs down the left rim and
-  drops straight into an upright white penlight at the bottom-left. White is Kana's B-Komachi colour (the S1
-  finale where Aqua raises a white penlight for her). Crimson handle, gold ring, a little heart on the tube.
+- **Moving white penlight** (left side): the penlight starts at the top with no trail, slides down the left
+  rim to the bottom-left and leaves a glowing trail behind it. It lies along the route the whole way, handle
+  in front, and the trail comes out of its glowing end. White is Kana's B-Komachi colour (the S1 finale where
+  Aqua raises a white penlight for her). Crimson handle, gold ring, a little heart on the tube.
 - **Idol stars** (top-right): one soft white star with a crimson edge, two small ones and a tiny heart.
 
-Animation (2 s loop): a light travels down the trail from the top and the penlight flashes when it arrives;
-sparks drift off the trail, the stars breathe and twinkle.
+Animation (3 s loop): the penlight appears at the top, travels down and draws the trail, sparkles when it
+reaches the end, then penlight and trail fade out and it starts again. The stars breathe and twinkle.
 
 ## Banner
 A long-exposure night-concert shot: penlight light trails (white, pink, crimson) streaking across a
