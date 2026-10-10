@@ -44,6 +44,8 @@ jobs:
     name: Package builds
     runs-on: ubuntu-latest
     needs: ['build']
+    permissions:
+      contents: write
 
     steps:
       - uses: geode-sdk/build-geode-mod/combine@main
@@ -53,3 +55,17 @@ jobs:
         with:
           name: AI Bot mod
           path: ${{ steps.build.outputs.build-output }}
+
+      # A fixed release gives a permanent direct download link:
+      # https://github.com/And2010A/bottlebox/releases/download/gd-ai-bot-latest/and2010a.ai-bot.geode
+      - name: Publish to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: gd-ai-bot-latest
+          target_commitish: ${{ github.sha }}
+          name: AI Bot (Geode mod) — latest build
+          body: |
+            Самонавчальний бот для Geometry Dash 2.2081 (Geode 5.11.1).
+            Поклади `and2010a.ai-bot.geode` у папку `geode/mods` гри. Інструкція: gd-ai-bot/README.md
+          prerelease: true
+          files: ${{ steps.build.outputs.build-output }}/*.geode

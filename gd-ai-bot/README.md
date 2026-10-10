@@ -5,9 +5,8 @@
 ## Встановлення
 
 1. Встанови [Geode](https://geode-sdk.org), якщо його ще немає.
-2. Завантаж готовий файл `and2010a.ai-bot.geode`:
-   - відкрий вкладку **Actions** цього репозиторію → останній запуск **Build AI Bot mod**;
-   - внизу, у розділі **Artifacts**, завантаж **AI Bot mod** (zip) і розпакуй його.
+2. Завантаж готовий файл мода (пряме посилання, завжди остання збірка):
+   **https://github.com/And2010A/bottlebox/releases/download/gd-ai-bot-latest/and2010a.ai-bot.geode**
 3. Поклади `and2010a.ai-bot.geode` у папку модів Geode:
    - **Windows:** `<папка гри>\geode\mods\` (папка гри — там, де `GeometryDash.exe`; у Steam: ПКМ по грі → Керувати → Переглянути локальні файли);
    - **Android:** через Geode Launcher → Settings → Open game folder → `geode/mods/`;
