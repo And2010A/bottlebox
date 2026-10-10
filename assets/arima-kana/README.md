@@ -1,17 +1,18 @@
-# Arima Kana — decoration + banner
+# Arima Kana — "White Penlight" decoration + banner
 
 ## Avatar decoration
-Kept sparse like Discord's own decorations: two pieces on a diagonal, both in the outer ring.
+Two pieces on the diagonal, outer ring only, like Discord's own decorations.
 
-- **Beret** (top-left): Kana's signature ivory beret with a crimson ribbon band, worn on her head.
-- **Satin ribbon + bow** (bottom-right): one crimson ribbon hugging the rim, in her hair colour.
+- **White penlight** (bottom-left): white is Kana's B-Komachi colour (the S1 finale where Aqua raises a
+  white penlight for her). Crimson handle, gold ring, a little heart on the tube. It rests along the rim,
+  and the **glowing trail of its swing** sweeps up the left side.
+- **Idol stars** (top-right): one soft white star with a crimson edge, two small ones and a tiny heart.
 
-Animation (2 s loop): a light glint sweeps across the beret, three sparkles twinkle, the bow tails sway.
+Animation (2 s loop): penlight glow pulses, sparks drift off the trail, the stars breathe and twinkle.
 
 ## Banner
-The stage she grew up on: velvet curtains, her name in lights (★ 10秒で泣ける天才役者 ★, "the genius actress
-who cries in 10 seconds"), a spotlight on the mic, and a crowd waving B-Komachi penlights. White, her colour,
-is up front.
+A long-exposure night-concert shot: penlight light trails (white, pink, crimson) streaking across a
+crimson-to-midnight sky, soft bokeh, and the same idol star on the right. Light pulses run along the trails.
 
 ## Files
 
