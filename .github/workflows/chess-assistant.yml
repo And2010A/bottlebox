@@ -1,0 +1,63 @@
+name: Build ChessAssistant.exe
+
+on:
+  push:
+    paths:
+      - "chess-assistant/**"
+      - ".github/workflows/chess-assistant.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: chess-assistant
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller==6.16.0
+
+      - name: Build exe
+        run: >
+          python -m PyInstaller --noconfirm --onefile --console --name ChessAssistant
+          --hidden-import pynput.keyboard._win32 --hidden-import pynput.mouse._win32
+          chess_assistant.py
+
+      - name: Download Stockfish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force sf | Out-Null
+          # sse41-popcnt працює майже на будь-якому процесорі; якщо його немає в релізі — загальна збірка
+          foreach ($pattern in "stockfish-windows-x86-64-sse41-popcnt.zip", "stockfish-windows-x86-64.zip") {
+            gh release download --repo official-stockfish/Stockfish --pattern $pattern --dir sf --clobber
+            if ($LASTEXITCODE -eq 0) { break }
+          }
+          Expand-Archive sf/*.zip -DestinationPath sf/unzipped
+          $exe = Get-ChildItem sf/unzipped -Recurse -Filter "stockfish*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "stockfish exe not found in the release archive" }
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item $exe.FullName package/stockfish.exe
+          $license = Get-ChildItem sf/unzipped -Recurse -Filter "Copying.txt" | Select-Object -First 1
+          if ($license) { Copy-Item $license.FullName package/Stockfish-LICENSE.txt }
+          "uci`nquit" | ./package/stockfish.exe | Select-String "id name"
+
+      - name: Smoke test (imports, vision)
+        run: python -c "import board_vision, chess, mss, numpy, PIL, pynput; print('ok')"
+
+      - name: Package
+        run: |
+          Copy-Item dist/ChessAssistant.exe package/
+          Copy-Item README.md package/README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChessAssistant-windows
+          path: chess-assistant/package/
