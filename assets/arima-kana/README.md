@@ -1,26 +1,27 @@
-# Arima Kana — avatar decoration + banner
+# Arima Kana — "Genius Actress" decoration + banner
 
-Made to match the Kana icon (pink frilly collar, doodled hearts, white phone with a red bow)
-and the same sticker style as the Ruby set (dark plum outlines, halftone dots, 4-point sparkles).
+Built from Kana's own character, not from the Ruby set.
+
+| Motif | Why it's Kana |
+| --- | --- |
+| Ivory beret with a crimson ribbon | her signature beret |
+| Stopwatch hitting **10秒** + a falling tear | "the genius child actress who can cry in 10 seconds" (10秒で泣ける天才子役) |
+| Clapperboard "ARIMA KANA · SCENE 10 · TAKE 1" + film strip | child-star actress, TV dramas |
+| Velvet curtains, spotlight, mic, marquee sign | stage actress (Tsurugi in the *Tokyo Blade* play) |
+| White penlights, sea of pink / yellow / white lights | white is her B-Komachi colour; the S1 finale where Aqua raises a white penlight for her |
+| Grumpy bell pepper with an anger mark | she secretly hates peppers, yet her childhood hit was *Pīman Taisō* (Bell Pepper Exercise) |
+| "Hmph!" bubble | tsundere |
+
+## Files
 
 | File | What | Size |
 | --- | --- | --- |
-| `kana-decoration.png` | avatar decoration, static | 288×288, transparent |
-| `kana-decoration.apng` | avatar decoration, animated (2 s loop) | 288×288, transparent |
-| `kana-banner.png` / `kana-banner@2x.png` | profile banner, static | 448×84 / 896×168 |
-| `kana-banner.gif` | profile banner, animated (2 s loop) | 448×84 |
-| `*.svg` | editable vector of frame 0 | |
-| `preview.png` | how it looks on a profile | |
-
-## Motifs
-
-- **Crimson satin ribbon + bow:** her red hair, and the ribbon in the icon
-- **Pink scalloped lace:** the frilly collar from the icon
-- **White hearts with a blue rim:** the hearts doodled around her in the icon
-- **White phone with a red bow:** the phone case she's holding
-- **Blue→pink starry sparkle:** her sparkling eyes
-- **Green pepper + music notes:** *Pīman Taisō*, her hit song as a child star
-- **Little teardrop:** "the genius child actress who can cry in 10 seconds"
+| `kana-decoration.apng` | avatar decoration, animated (2 s loop: stopwatch runs to 10 s, tear falls, clapper snaps, film scrolls) | 288×288, transparent |
+| `kana-decoration.png` | avatar decoration, still | 288×288, transparent |
+| `kana-banner.gif` | banner, animated (bulbs chase, penlights wave, spotlight dust) | 896×168 |
+| `kana-banner.png` / `kana-banner@2x.png` | banner, still | 448×84 / 896×168 |
+| `*.svg` | vector source of the still frame | |
+| `preview.png` | mock profile with the decoration on the icon | |
 
 ## Rebuild
 
@@ -28,4 +29,3 @@ and the same sticker style as the Ruby set (dark plum outlines, halftone dots, 4
 python3 source/build.py                 # needs Pillow + Node with Playwright (Chromium)
 python3 source/preview.py <avatar.png>  # regenerates preview.png
 ```
-Colours, positions and animation timing are all at the top of `source/build.py`.

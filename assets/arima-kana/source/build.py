@@ -1,18 +1,20 @@
-"""Arima Kana avatar decoration + profile banner generator.
+"""Arima Kana — "Genius Actress" avatar decoration + profile banner.
 
-Builds every frame as SVG, renders it with headless Chromium (render.mjs),
-then packs the frames into APNG / GIF with Pillow.
+Builds each frame as SVG, renders it with headless Chromium (render.mjs),
+then packs frames into APNG / GIF with Pillow.
 
     python3 build.py            # writes into ../ (assets/arima-kana)
 
-Design notes (what each motif refers to):
-  * crimson satin ribbon + bow  -> Kana's red hair / the pink ribbon in the icon
-  * pink scalloped lace         -> the frilly collar of her pink outfit in the icon
-  * white hearts w/ blue rim    -> the doodled hearts drawn around her in the icon
-  * white phone with red bow    -> the phone case she is holding in the icon
-  * blue->pink starry sparkle   -> her sparkling ruby eyes
-  * green pepper + music notes  -> "Piman Taiso", her hit song as a child star
-  * light-blue teardrop         -> "the genius child actress who cries in 10 seconds"
+Every motif comes from Kana herself:
+  * beret with a ribbon            -> her signature look
+  * stopwatch at 10 s + a tear     -> "the genius child actress who can cry in 10 seconds"
+  * clapperboard + film strip      -> child-star actress, TV dramas
+  * velvet curtain, spotlight      -> stage actress (Tsurugi in the Tokyo Blade play)
+  * white penlights                -> her B-Komachi member colour; the season-1 finale
+                                      where Aqua raises a white penlight for her
+  * grumpy bell pepper             -> she secretly hates peppers, yet her childhood
+                                      hit song was "Piman Taiso" (Bell Pepper Exercise)
+  * "Hmph!" bubble + anger mark    -> tsundere
 """
 
 import json
@@ -27,19 +29,25 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.dirname(HERE)
 FRAMES_DIR = os.path.join(HERE, "_frames")
 
-N_FRAMES = 24
-FRAME_MS = 1000 // 12  # 2 second loop
+N_FRAMES = 30
+FRAME_MS = 1000 // 15  # 2 second loop
 
-INK = "#2b0a16"          # outline colour, same dark plum as the Ruby set
+INK = "#22080f"
 CRIMSON = "#c8163f"
-CRIMSON_DARK = "#7e0a27"
+CRIMSON_DARK = "#7a0a26"
 CRIMSON_LIGHT = "#ff6a8a"
-PINK_LACE = "#fbd3de"
-PINK_LACE_SHADE = "#ea94ad"
-PINK = "#ff6f96"
-HEART_RIM = "#9fd8ff"
+IVORY = "#f7f0e6"
+IVORY_SHADE = "#e2d2c0"
+GOLD = "#ffcf5a"
+GOLD_DARK = "#b9822a"
+FILM = "#1b1116"
 PEPPER = "#3fae4a"
 PEPPER_DARK = "#1d6b2a"
+PENLIGHT = "#ffffff"
+PENLIGHT_GLOW = "#cfe9ff"
+
+FONT = "'Inter Display', 'Inter', sans-serif"
+FONT_JP = "'IPAPGothic', 'IPAGothic', sans-serif"
 
 
 def f(v):
@@ -50,264 +58,281 @@ def wave(t, phase=0.0):
     return math.sin(2 * math.pi * (t + phase))
 
 
-# ---------------------------------------------------------------- primitives
+def pulse(t, phase=0.0):
+    return 0.5 + 0.5 * wave(t, phase)
+
 
 def defs():
     return f"""
 <defs>
-  <linearGradient id="eyeStar" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#2f4fd8"/>
-    <stop offset="0.45" stop-color="#9b4dff"/>
-    <stop offset="1" stop-color="#ff6fa8"/>
+  <linearGradient id="beret" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fffaf2"/><stop offset="1" stop-color="{IVORY_SHADE}"/>
   </linearGradient>
-  <radialGradient id="glow">
-    <stop offset="0" stop-color="#ffffff" stop-opacity="0.9"/>
-    <stop offset="0.35" stop-color="#ff8fb4" stop-opacity="0.45"/>
-    <stop offset="1" stop-color="#ff8fb4" stop-opacity="0"/>
+  <linearGradient id="velvet" x1="0" y1="0" x2="14" y2="0" gradientUnits="userSpaceOnUse" spreadMethod="reflect">
+    <stop offset="0" stop-color="#4e0414"/><stop offset="1" stop-color="#d0204a"/>
+  </linearGradient>
+  <linearGradient id="valance" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#8e0c2c"/><stop offset="1" stop-color="#d62650"/>
+  </linearGradient>
+  <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff0b8"/><stop offset="0.5" stop-color="{GOLD}"/><stop offset="1" stop-color="{GOLD_DARK}"/>
+  </linearGradient>
+  <linearGradient id="spot" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#fff6e0" stop-opacity="0.65"/><stop offset="1" stop-color="#fff6e0" stop-opacity="0.08"/>
+  </linearGradient>
+  <radialGradient id="penGlow">
+    <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+    <stop offset="0.4" stop-color="{PENLIGHT_GLOW}" stop-opacity="0.5"/>
+    <stop offset="1" stop-color="{PENLIGHT_GLOW}" stop-opacity="0"/>
   </radialGradient>
-  <linearGradient id="beam" x1="1" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#ffe6f0" stop-opacity="0.55"/>
-    <stop offset="1" stop-color="#ffe6f0" stop-opacity="0"/>
-  </linearGradient>
   <linearGradient id="pepperShine" x1="0" y1="0" x2="1" y2="1">
-    <stop offset="0" stop-color="#7fdc79"/>
-    <stop offset="1" stop-color="{PEPPER}"/>
+    <stop offset="0" stop-color="#86e07f"/><stop offset="1" stop-color="{PEPPER}"/>
   </linearGradient>
-  <filter id="blur4" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="4"/></filter>
-  <filter id="blur2" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2"/></filter>
+  <filter id="blur1" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.2"/></filter>
+  <filter id="blur3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+  <filter id="textGlow" x="-20%" y="-50%" width="140%" height="200%">
+    <feGaussianBlur in="SourceAlpha" stdDeviation="1.6" result="b"/>
+    <feFlood flood-color="#ff6f96"/><feComposite in2="b" operator="in" result="g"/>
+    <feMerge><feMergeNode in="g"/><feMergeNode in="SourceGraphic"/></feMerge>
+  </filter>
 </defs>"""
 
 
-HEART = ("M0,0.36 C-0.12,0.26 -0.52,0.02 -0.52,-0.24 C-0.52,-0.5 -0.16,-0.6 0,-0.34 "
-         "C0.16,-0.6 0.52,-0.5 0.52,-0.24 C0.52,0.02 0.12,0.26 0,0.36 Z")
-SPARK = "M0,-1 Q0.14,-0.14 1,0 Q0.14,0.14 0,1 Q-0.14,0.14 -1,0 Q-0.14,-0.14 0,-1 Z"
+SPARK = "M0,-1 Q0.12,-0.12 1,0 Q0.12,0.12 0,1 Q-0.12,0.12 -1,0 Q-0.12,-0.12 0,-1 Z"
 
 
-def heart(x, y, s, kind="white", rot=0):
-    """kind: white (blue rim, like the icon's doodles) | pink | crimson"""
-    sw = 1.5 / s
-    tr = f'translate({f(x)},{f(y)}) rotate({rot}) scale({f(s)})'
-    if kind == "white":
-        return (f'<g transform="{tr}">'
-                f'<path d="{HEART}" fill="#fff" stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"/>'
-                f'<path d="{HEART}" transform="scale(0.72) translate(0,-0.02)" fill="none" '
-                f'stroke="{HEART_RIM}" stroke-width="{f(sw * 1.25)}"/>'
-                f'<ellipse cx="-0.24" cy="-0.27" rx="0.07" ry="0.11" transform="rotate(-30 -0.24 -0.27)" fill="{HEART_RIM}" opacity="0.8"/>'
-                f'</g>')
-    fill = PINK if kind == "pink" else CRIMSON
-    return (f'<g transform="{tr}">'
-            f'<path d="{HEART}" fill="{fill}" stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"/>'
-            f'<ellipse cx="-0.24" cy="-0.25" rx="0.08" ry="0.12" transform="rotate(-30 -0.24 -0.25)" fill="#fff" opacity="0.85"/>'
-            f'</g>')
+def sparkle(x, y, s, fill="#fff", outline=False):
+    st = f'stroke="{INK}" stroke-width="{f(1.2 / s)}" stroke-linejoin="round"' if outline else ""
+    return f'<path d="{SPARK}" transform="translate({f(x)},{f(y)}) scale({f(s)})" fill="{fill}" {st}/>'
 
 
-def sparkle(x, y, s, fill="#fff", rot=0, outline=True):
-    sw = 1.4 / s
-    stroke = f'stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"' if outline else ""
-    return (f'<path d="{SPARK}" transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})" '
-            f'fill="{fill}" {stroke}/>')
-
-
-def eye_star(x, y, s, rot=0):
-    """Starry sparkle with the blue->pink gradient of her eyes."""
-    sw = 1.6 / s
-    return (f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">'
-            f'<circle r="1.3" fill="url(#glow)"/>'
-            f'<path d="{SPARK}" fill="url(#eyeStar)" stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"/>'
-            f'<path d="{SPARK}" transform="scale(0.32)" fill="#fff"/>'
-            f'</g>')
-
-
-def note(x, y, s, fill=CRIMSON, double=False, rot=0):
-    sw = 1.3 / s
-    common = f'fill="{fill}" stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"'
-    if double:
-        body = (f'<path d="M-0.55,0.55 L-0.55,-0.75 L0.65,-1 L0.65,0.3 L0.48,0.3 L0.48,-0.6 L-0.38,-0.42 L-0.38,0.55 Z" {common}/>'
-                f'<ellipse cx="-0.72" cy="0.55" rx="0.3" ry="0.22" transform="rotate(-20 -0.72 0.55)" {common}/>'
-                f'<ellipse cx="0.48" cy="0.3" rx="0.3" ry="0.22" transform="rotate(-20 0.48 0.3)" {common}/>')
-    else:
-        body = (f'<path d="M0.12,0.55 L0.12,-0.9 C0.35,-0.6 0.75,-0.55 0.6,-0.1 C0.55,-0.4 0.4,-0.45 0.3,-0.5 L0.3,0.55 Z" {common}/>'
-                f'<ellipse cx="-0.05" cy="0.6" rx="0.34" ry="0.25" transform="rotate(-20 -0.05 0.6)" {common}/>')
-    return f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">{body}</g>'
-
-
-def pepper(x, y, s, rot=0):
-    """Little green bell pepper charm (Piman Taiso). Origin = top of the stem."""
+def small_bow(x, y, s, rot=0, fill=CRIMSON):
     sw = 1.4 / s
     st = f'stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"'
+    loop = "M0,0 C-0.3,-0.55 -1,-0.55 -1,-0.05 C-1,0.4 -0.35,0.35 0,0.05 Z"
+    tail = "M-0.05,0.08 L-0.45,0.9 L-0.25,0.82 L-0.15,1.0 L0.08,0.12 Z"
     return (f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">'
-            # body: three lobes
-            f'<path d="M0,0.28 C-0.45,0.1 -0.8,0.35 -0.72,0.95 C-0.66,1.45 -0.3,1.55 -0.12,1.38 '
-            f'C0,1.55 0.12,1.55 0.22,1.4 C0.4,1.6 0.8,1.4 0.8,0.9 C0.82,0.35 0.42,0.1 0,0.28 Z" '
-            f'fill="url(#pepperShine)" {st}/>'
-            f'<path d="M-0.12,0.5 C-0.2,0.85 -0.18,1.15 -0.1,1.32 M0.22,0.5 C0.32,0.85 0.3,1.15 0.22,1.36" '
-            f'fill="none" stroke="{PEPPER_DARK}" stroke-width="{f(sw * 0.9)}" stroke-linecap="round"/>'
-            f'<ellipse cx="-0.42" cy="0.72" rx="0.09" ry="0.2" transform="rotate(20 -0.42 0.72)" fill="#fff" opacity="0.85"/>'
-            # calyx + stem
-            f'<path d="M-0.36,0.3 C-0.15,0.12 0.15,0.12 0.38,0.3 C0.18,0.4 -0.15,0.42 -0.36,0.3 Z" fill="{PEPPER_DARK}" {st}/>'
-            f'<path d="M-0.05,0.24 C-0.05,0.1 0,-0.02 0.12,-0.1 L0.2,-0.02 C0.1,0.05 0.07,0.14 0.08,0.24 Z" fill="#6b8e23" {st}/>'
-            # tiny blush face, it's a mascot after all
-            f'<circle cx="-0.18" cy="0.85" r="0.05" fill="{INK}"/><circle cx="0.26" cy="0.85" r="0.05" fill="{INK}"/>'
-            f'<path d="M-0.02,0.98 Q0.04,1.04 0.1,0.98" fill="none" stroke="{INK}" stroke-width="{f(sw * 0.7)}" stroke-linecap="round"/>'
-            f'<ellipse cx="-0.35" cy="0.98" rx="0.1" ry="0.06" fill="{PINK}" opacity="0.8"/>'
-            f'<ellipse cx="0.45" cy="0.98" rx="0.1" ry="0.06" fill="{PINK}" opacity="0.8"/>'
+            f'<path d="{tail}" fill="{CRIMSON_DARK}" {st}/><path d="{tail}" fill="{fill}" {st} transform="scale(-1,1)"/>'
+            f'<path d="{loop}" fill="{fill}" {st}/><path d="{loop}" fill="{fill}" {st} transform="scale(-1,1)"/>'
+            f'<path d="M-0.55,-0.25 Q-0.75,-0.25 -0.82,-0.1" fill="none" stroke="{CRIMSON_LIGHT}" stroke-width="{f(sw * 1.2)}" stroke-linecap="round"/>'
+            f'<ellipse rx="0.18" ry="0.2" fill="{fill}" {st}/>'
             f'</g>')
 
 
-def teardrop(x, y, s):
-    sw = 1.3 / s
-    return (f'<g transform="translate({f(x)},{f(y)}) scale({f(s)})">'
-            f'<path d="M0,-1 C0.25,-0.5 0.55,-0.1 0.55,0.25 C0.55,0.6 0.28,0.8 0,0.8 C-0.28,0.8 -0.55,0.6 -0.55,0.25 C-0.55,-0.1 -0.25,-0.5 0,-1 Z" '
-            f'fill="#cdeeff" stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"/>'
-            f'<ellipse cx="-0.2" cy="0.2" rx="0.1" ry="0.2" fill="#fff"/>'
-            f'</g>')
+# ---------------------------------------------------------------- motifs
 
-
-def bow(x, y, s, rot=0):
-    """Crimson satin bow. Origin = knot."""
-    sw = 1.6 / s
+def beret(x, y, s, rot):
+    """Kana's ivory beret with a crimson ribbon band and bow. Origin = band centre."""
+    sw = 1.8 / s
     st = f'stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"'
-    loop_l = "M-0.08,-0.05 C-0.35,-0.55 -0.98,-0.6 -1.02,-0.12 C-1.06,0.32 -0.5,0.42 -0.08,0.1 Z"
-    fold_l = "M-0.18,0 C-0.42,-0.22 -0.7,-0.3 -0.86,-0.18 C-0.7,-0.1 -0.45,-0.04 -0.18,0.04 Z"
-    tail_l = "M-0.1,0.1 C-0.25,0.45 -0.42,0.8 -0.62,1.05 L-0.42,1.0 L-0.36,1.2 C-0.18,0.9 -0.02,0.5 0.04,0.14 Z"
-    mirror = 'transform="scale(-1,1)"'
+    dome = ("M-0.98,0.02 C-1.12,-0.38 -0.62,-0.72 0.02,-0.74 C0.7,-0.76 1.18,-0.4 1.02,0.02 "
+            "C0.7,0.16 -0.68,0.16 -0.98,0.02 Z")
+    band = "M-0.7,0.08 C-0.35,0.2 0.35,0.2 0.72,0.08 L0.68,0.3 C0.32,0.42 -0.32,0.42 -0.66,0.3 Z"
+    r = math.radians(rot)
+    bx = x + s * (0.62 * math.cos(r) - 0.2 * math.sin(r))
+    by = y + s * (0.62 * math.sin(r) + 0.2 * math.cos(r))
     return (f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">'
-            f'<path d="{tail_l}" fill="{CRIMSON_DARK}" {st}/>'
-            f'<path d="{tail_l}" fill="{CRIMSON}" {st} transform="scale(-1,1) rotate(-6)"/>'
-            f'<path d="{loop_l}" fill="{CRIMSON}" {st}/>'
-            f'<path d="{loop_l}" fill="{CRIMSON}" {st} {mirror}/>'
-            f'<path d="{fold_l}" fill="{CRIMSON_DARK}" opacity="0.85"/>'
-            f'<path d="{fold_l}" fill="{CRIMSON_DARK}" opacity="0.85" {mirror}/>'
-            f'<path d="M-0.55,-0.36 C-0.7,-0.36 -0.82,-0.3 -0.88,-0.2" fill="none" stroke="{CRIMSON_LIGHT}" stroke-width="{f(sw * 1.3)}" stroke-linecap="round"/>'
-            f'<path d="M0.55,-0.36 C0.7,-0.36 0.82,-0.3 0.88,-0.2" fill="none" stroke="{CRIMSON_LIGHT}" stroke-width="{f(sw * 1.3)}" stroke-linecap="round"/>'
-            f'<ellipse cx="0" cy="0.02" rx="0.17" ry="0.2" fill="{CRIMSON}" {st}/>'
-            f'<ellipse cx="-0.04" cy="-0.04" rx="0.05" ry="0.07" fill="{CRIMSON_LIGHT}"/>'
-            f'</g>')
+            f'<path d="{dome}" fill="url(#beret)" {st}/>'
+            f'<path d="M-0.55,-0.45 C-0.25,-0.62 0.25,-0.64 0.6,-0.48" fill="none" stroke="{IVORY_SHADE}" stroke-width="{f(sw * 1.3)}" stroke-linecap="round"/>'
+            f'<path d="M-0.8,-0.08 C-0.4,0.02 0.4,0.02 0.85,-0.1" fill="none" stroke="{IVORY_SHADE}" stroke-width="{f(sw)}" stroke-linecap="round"/>'
+            f'<ellipse cx="-0.42" cy="-0.5" rx="0.2" ry="0.07" transform="rotate(-14 -0.42 -0.5)" fill="#fff"/>'
+            f'<path d="M-0.04,-0.74 C-0.05,-0.86 0.02,-0.92 0.1,-0.9 L0.1,-0.74 Z" fill="{IVORY}" {st}/>'
+            f'<path d="{band}" fill="{CRIMSON}" {st}/>'
+            f'<path d="M-0.5,0.2 C-0.2,0.28 0.2,0.28 0.5,0.2" fill="none" stroke="{CRIMSON_LIGHT}" stroke-width="{f(sw * 0.9)}" stroke-linecap="round"/>'
+            f'</g>' + small_bow(bx, by, s * 0.3, rot + 8))
 
 
-def ribbon(center_fn, t0, t1, width, twists, notch=True, steps=90):
-    """Satin ribbon band following center_fn(u) -> (x, y), u in [t0, t1].
-
-    Width is width*cos(phase) so the band visibly twists; where the sign flips
-    we're looking at the back side, which is painted darker."""
-    pts, ws = [], []
-    for i in range(steps + 1):
-        u = t0 + (t1 - t0) * i / steps
-        pts.append(center_fn(u))
-        ph = math.pi * twists * i / steps + 0.35
-        w = width * (0.8 * math.cos(ph) + 0.3)  # biased so the front side shows more
-        if abs(w) < 0.9:
-            w = 0.9 if w >= 0 else -0.9
-        ws.append(w)
-    left, right = [], []
-    for i, (x, y) in enumerate(pts):
-        a = pts[max(i - 1, 0)]
-        b = pts[min(i + 1, steps)]
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        ln = math.hypot(dx, dy) or 1
-        nx, ny = -dy / ln, dx / ln
-        w = ws[i] / 2
-        left.append((x + nx * w, y + ny * w))
-        right.append((x - nx * w, y - ny * w))
-    outline = left[:]
-    if notch:
-        ex, ey = pts[-1]
-        px, py = pts[-4]
-        outline.append((px + (ex - px) * 0.2, py + (ey - py) * 0.2))
-    outline += right[::-1]
-    d = "M" + " L".join(f"{f(x)},{f(y)}" for x, y in outline) + " Z"
-    out = [f'<path d="{d}" fill="{CRIMSON}" stroke="{INK}" stroke-width="1.8" stroke-linejoin="round"/>']
-    # back side segments + centre highlight on the front side
-    for i in range(steps):
-        if ws[i] < 0 and ws[i + 1] < 0:
-            q = [left[i], left[i + 1], right[i + 1], right[i]]
-            out.append('<path d="M' + " L".join(f"{f(x)},{f(y)}" for x, y in q) + f' Z" fill="{CRIMSON_DARK}"/>')
-    hl = []
-    for i in range(steps + 1):
-        if ws[i] > width * 0.45:
-            hl.append(f"{f(pts[i][0] + (left[i][0] - pts[i][0]) * 0.35)},{f(pts[i][1] + (left[i][1] - pts[i][1]) * 0.35)}")
-        elif hl:
-            if len(hl) > 2:
-                out.append(f'<polyline points="{" ".join(hl)}" fill="none" stroke="{CRIMSON_LIGHT}" stroke-width="1.3" stroke-linecap="round" opacity="0.9"/>')
-            hl = []
-    if len(hl) > 2:
-        out.append(f'<polyline points="{" ".join(hl)}" fill="none" stroke="{CRIMSON_LIGHT}" stroke-width="1.3" stroke-linecap="round" opacity="0.9"/>')
-    return "\n".join(out)
-
-
-def lace_arc(cx, cy, r_in, r_out, a0, a1, n):
-    """Pink scalloped lace ruffle along an arc (angles in degrees, 0 = +x, clockwise)."""
+def film_strip(cx, cy, r_in, r_out, a0, a1, t):
+    """Film strip bent around the avatar; frames scroll as it animates."""
     def p(r, a):
         a = math.radians(a)
         return cx + r * math.cos(a), cy + r * math.sin(a)
 
-    parts = [f"M{f(p(r_in, a0)[0])},{f(p(r_in, a0)[1])}"]
-    step = (a1 - a0) / n
-    x, y = p(r_out - 4, a0)
-    parts.append(f"L{f(x)},{f(y)}")
-    for i in range(n):
-        aa, ab = a0 + step * i, a0 + step * (i + 1)
-        c1 = p(r_out + 5, aa + step * 0.1)
-        c2 = p(r_out + 5, ab - step * 0.1)
-        e = p(r_out - 3, ab)
-        parts.append(f"C{f(c1[0])},{f(c1[1])} {f(c2[0])},{f(c2[1])} {f(e[0])},{f(e[1])}")
-    e = p(r_in, a1)
-    parts.append(f"L{f(e[0])},{f(e[1])}")
-    parts.append(f"A{r_in},{r_in} 0 0 0 {f(p(r_in, a0)[0])},{f(p(r_in, a0)[1])} Z")
-    out = [f'<path d="{" ".join(parts)}" fill="{PINK_LACE}" stroke="{INK}" stroke-width="1.6" stroke-linejoin="round"/>']
-    # fold shading toward the scallop valleys
-    for i in range(1, n):
-        a = a0 + step * i
-        s, e = p(r_in + 3, a), p(r_out - 3, a)
-        out.append(f'<line x1="{f(s[0])}" y1="{f(s[1])}" x2="{f(e[0])}" y2="{f(e[1])}" stroke="{PINK_LACE_SHADE}" stroke-width="1.2" stroke-linecap="round"/>')
-    # eyelets
-    for i in range(n):
-        a = a0 + step * (i + 0.5)
-        x, y = p((r_in + r_out) / 2 + 2, a)
-        out.append(f'<circle cx="{f(x)}" cy="{f(y)}" r="1.5" fill="#fff" stroke="{PINK_LACE_SHADE}" stroke-width="0.8"/>')
-    # stitched band on the inner edge
-    s, e = p(r_in + 2.5, a0 + 1), p(r_in + 2.5, a1 - 1)
-    out.append(f'<path d="M{f(s[0])},{f(s[1])} A{r_in + 2.5},{r_in + 2.5} 0 0 1 {f(e[0])},{f(e[1])}" fill="none" '
-               f'stroke="{PINK}" stroke-width="1" stroke-dasharray="2.5 2" />')
+    out = []
+    s0, s1 = p(r_out, a0), p(r_out, a1)
+    e0, e1 = p(r_in, a1), p(r_in, a0)
+    large = 1 if (a1 - a0) > 180 else 0
+    d = (f"M{f(s0[0])},{f(s0[1])} A{r_out},{r_out} 0 {large} 1 {f(s1[0])},{f(s1[1])} "
+         f"L{f(e0[0])},{f(e0[1])} A{r_in},{r_in} 0 {large} 0 {f(e1[0])},{f(e1[1])} Z")
+    out.append(f'<path d="{d}" fill="{FILM}" stroke="{INK}" stroke-width="1.6" stroke-linejoin="round"/>')
+
+    hole_step = 6.0
+    travel = t * 12.0  # degrees the film advances per loop (multiple of both steps)
+
+    a = a0 + 2 + (travel % hole_step)
+    while a < a1 - 2:
+        for r in (r_in + 2.8, r_out - 2.8):
+            x, y = p(r, a)
+            out.append(f'<rect x="-1.4" y="-1.1" width="2.8" height="2.2" rx="0.6" fill="#f3e6ea" '
+                       f'transform="translate({f(x)},{f(y)}) rotate({f(a + 90)})"/>')
+        a += hole_step
+
+    icons = ["heart", "star", "beret", "pepper", "tear", "star"]
+    fill = ["#ff7fa3", "#ffe3a3", "#ffd0dc", "#c9f0c3", "#d5efff", "#ffb3c6"]
+    frame_step = 12.0
+    rm = (r_in + r_out) / 2
+    fw, fh = 8.4, (r_out - r_in) - 9
+    a = a0 + 4 + (travel % frame_step)
+    k = -int(travel // frame_step)
+    while a < a1 - 4:
+        x, y = p(rm, a)
+        i = k % len(icons)
+        g = [f'<rect x="{-fh / 2}" y="{-fw / 2}" width="{fh}" height="{fw}" rx="0.8" fill="{fill[i]}"/>']
+        ic = icons[i]
+        if ic == "heart":
+            g.append('<path d="M0,1.6 C-0.6,1.1 -2.2,0.1 -2.2,-0.9 C-2.2,-2 -0.7,-2.3 0,-1.2 C0.7,-2.3 2.2,-2 2.2,-0.9 C2.2,0.1 0.6,1.1 0,1.6Z" fill="#c8163f" transform="rotate(-90)"/>')
+        elif ic == "star":
+            g.append(f'<path d="{SPARK}" transform="scale(2.4)" fill="#fff"/>')
+        elif ic == "beret":
+            g.append('<g transform="rotate(-90)"><ellipse cx="0" cy="-0.3" rx="2.6" ry="1.5" fill="#fff"/><rect x="-2" y="0.6" width="4" height="0.9" fill="#c8163f"/></g>')
+        elif ic == "pepper":
+            g.append('<g transform="rotate(-90)"><ellipse cx="0" cy="0.5" rx="1.9" ry="2" fill="#2f8f3a"/><rect x="-0.3" y="-2.2" width="0.6" height="1.2" fill="#6b8e23"/></g>')
+        elif ic == "tear":
+            g.append('<path d="M0,-2.2 C0.7,-1 1.4,0 1.4,0.8 C1.4,1.7 0.7,2.1 0,2.1 C-0.7,2.1 -1.4,1.7 -1.4,0.8 C-1.4,0 -0.7,-1 0,-2.2Z" fill="#6fb8ff" transform="rotate(-90)"/>')
+        out.append(f'<g transform="translate({f(x)},{f(y)}) rotate({f(a)})">{"".join(g)}</g>')
+        a += frame_step
+        k += 1
     return "\n".join(out)
 
 
-def phone(x, y, s, rot):
-    """White phone case with the red bow, like the one in the icon."""
+def clapperboard(x, y, s, rot, t):
+    """Clapperboard that opens and snaps shut once per loop."""
+    k = 1.0
+    if 0.5 <= t < 0.88:
+        k = max(0.0, 1 - math.sin(math.pi * (t - 0.5) / 0.76))
+    open_deg = -26 * (1 - k)
     sw = 1.6 / s
     st = f'stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"'
-    lens = "".join(
-        f'<circle cx="{cx}" cy="{cy}" r="0.13" fill="#d8b77a" {st}/><circle cx="{cx}" cy="{cy}" r="0.07" fill="#3a2a1a"/>'
-        for cx, cy in [(-0.28, -0.72), (-0.28, -0.42), (0.0, -0.57)])
+    stripes = "".join(
+        f'<path d="M{f(-1 + i * 0.36)},-0.06 L{f(-0.82 + i * 0.36)},-0.06 L{f(-0.92 + i * 0.36)},-0.34 L{f(-1.1 + i * 0.36)},-0.34 Z" fill="#fff"/>'
+        for i in range(6))
+    stick = (f'<g transform="translate(-1,-0.06) rotate({f(open_deg)}) translate(1,0.06)">'
+             f'<rect x="-1" y="-0.36" width="2" height="0.3" rx="0.04" fill="{FILM}"/>'
+             f'<clipPath id="stk"><rect x="-1" y="-0.36" width="2" height="0.3"/></clipPath>'
+             f'<g clip-path="url(#stk)">{stripes}</g>'
+             f'<rect x="-1" y="-0.36" width="2" height="0.3" rx="0.04" fill="none" {st}/></g>')
+    base_stripes = "".join(
+        f'<path d="M{f(-1 + i * 0.36)},0 L{f(-0.82 + i * 0.36)},0 L{f(-0.72 + i * 0.36)},0.24 L{f(-0.9 + i * 0.36)},0.24 Z" fill="#fff"/>'
+        for i in range(6))
+    txt = (f'<text x="-0.86" y="0.62" font-family="{FONT}" font-weight="900" font-size="0.29" fill="#fff">ARIMA KANA</text>'
+           f'<line x1="-0.9" y1="0.74" x2="0.9" y2="0.74" stroke="#fff" stroke-width="0.03" opacity="0.6"/>'
+           f'<text x="-0.86" y="1.0" font-family="{FONT}" font-weight="700" font-size="0.2" fill="{GOLD}">SCENE 10</text>'
+           f'<text x="0.12" y="1.0" font-family="{FONT}" font-weight="700" font-size="0.2" fill="{CRIMSON_LIGHT}">TAKE 1 ★</text>')
     return (f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">'
-            f'<rect x="-0.52" y="-1" width="1.04" height="2" rx="0.2" fill="#fbf6f2" {st}/>'
-            f'<rect x="-0.44" y="-0.92" width="0.88" height="1.84" rx="0.15" fill="none" stroke="#efd9dc" stroke-width="{f(sw * 0.8)}"/>'
-            f'<rect x="-0.44" y="-0.88" width="0.62" height="0.62" rx="0.15" fill="#f1e7ea" {st}/>'
-            f'{lens}<circle cx="0.02" cy="-0.36" r="0.04" fill="#f6d36b"/>'
-            f'</g>' + bow_on_phone(x, y, s, rot))
+            f'<rect x="-1" y="0" width="2" height="1.18" rx="0.08" fill="{FILM}" {st}/>'
+            f'<clipPath id="bst"><rect x="-1" y="0" width="2" height="0.24"/></clipPath>'
+            f'<g clip-path="url(#bst)">{base_stripes}</g>'
+            f'<line x1="-1" y1="0.24" x2="1" y2="0.24" stroke="{INK}" stroke-width="{f(sw)}"/>'
+            f'{txt}{stick}'
+            f'<circle cx="-0.92" cy="-0.06" r="0.06" fill="{GOLD}" {st}/>'
+            f'</g>')
 
 
-def bow_on_phone(x, y, s, rot):
-    # bow sits a bit below the middle of the case, rotated with it
-    r = math.radians(rot)
-    ox, oy = 0.05, 0.28
-    bx = x + (ox * math.cos(r) - oy * math.sin(r)) * s
-    by = y + (ox * math.sin(r) + oy * math.cos(r)) * s
-    return bow(bx, by, s * 0.32, rot)
+def stopwatch(x, y, r, t):
+    """Stopwatch whose hand runs 0 -> 10 seconds."""
+    sw = 1.6 if r > 15 else 1.0
+    hand = 60 * min(t / 0.8, 1.0)  # 10 s out of 60 = 60 deg
+    ticks = []
+    for i in range(12):
+        a = math.radians(i * 30 - 90)
+        r1, r2 = r * (0.62 if i % 3 else 0.55), r * 0.72
+        ticks.append(f'<line x1="{f(math.cos(a) * r1)}" y1="{f(math.sin(a) * r1)}" x2="{f(math.cos(a) * r2)}" y2="{f(math.sin(a) * r2)}" '
+                     f'stroke="{INK}" stroke-width="{f((1.2 if i % 3 == 0 else 0.7) * r / 21)}" stroke-linecap="round"/>')
+    a1 = math.radians(hand - 90)
+    wedge = (f'<path d="M0,0 L0,{f(-r * 0.7)} A{f(r * 0.7)},{f(r * 0.7)} 0 0 1 {f(math.cos(a1) * r * 0.7)},{f(math.sin(a1) * r * 0.7)} Z" '
+             f'fill="{CRIMSON_LIGHT}" opacity="0.35"/>') if hand > 1 else ""
+    hx, hy = math.cos(a1) * r * 0.66, math.sin(a1) * r * 0.66
+    u = r / 21
+    return (f'<g transform="translate({f(x)},{f(y)}) rotate(14) scale({f(u)})">'
+            f'<rect x="-3.5" y="-28" width="7" height="5" rx="1.2" fill="url(#gold)" stroke="{INK}" stroke-width="{sw / u}"/>'
+            f'<rect x="-1.6" y="-24" width="3.2" height="4" fill="{GOLD_DARK}" stroke="{INK}" stroke-width="{1 / u}"/>'
+            f'<rect x="-2.5" y="-23" width="5" height="4" rx="1" fill="url(#gold)" stroke="{INK}" stroke-width="{1.2 / u}" transform="rotate(42)"/>'
+            f'<circle r="21" fill="{CRIMSON}" stroke="{INK}" stroke-width="{sw / u}"/>'
+            f'<circle r="17.2" fill="#fffaf4" stroke="{INK}" stroke-width="{1.2 / u}"/>'
+            f'</g>'
+            f'<g transform="translate({f(x)},{f(y)}) rotate(14)">'
+            f'{wedge}{"".join(ticks)}'
+            f'<text x="0" y="{f(r * 0.4)}" text-anchor="middle" font-family="{FONT_JP}" font-weight="700" font-size="{f(r * 0.36)}" fill="{CRIMSON}">10秒</text>'
+            f'<line x1="0" y1="0" x2="{f(hx)}" y2="{f(hy)}" stroke="{INK}" stroke-width="{f(1.6 * u)}" stroke-linecap="round"/>'
+            f'<circle r="{f(1.8 * u)}" fill="{CRIMSON}" stroke="{INK}" stroke-width="{f(0.8 * u)}"/>'
+            f'<path d="M{f(-r * 0.62)},{f(-r * 0.52)} A{f(r * 0.8)},{f(r * 0.8)} 0 0 1 {f(-r * 0.2)},{f(-r * 0.78)}" fill="none" stroke="#fff" stroke-width="{f(1.6 * u)}" stroke-linecap="round" opacity="0.9"/>'
+            f'</g>')
 
 
-def halftone(x0, y0, cols, rows, gap, rmax, color, flip=False):
-    out = []
-    for j in range(rows):
-        for i in range(cols):
-            k = (i / max(cols - 1, 1))
-            if flip:
-                k = 1 - k
-            r = rmax * (0.25 + 0.75 * k) * (1 - 0.15 * j)
-            if (i + j) % 2:
-                continue
-            out.append(f'<circle cx="{f(x0 + i * gap)}" cy="{f(y0 + j * gap)}" r="{f(r)}" fill="{color}"/>')
-    return "".join(out)
+def tear(x, y, s, opacity=1.0):
+    sw = 1.2 / s
+    return (f'<g transform="translate({f(x)},{f(y)}) scale({f(s)})" opacity="{f(opacity)}">'
+            f'<path d="M0,-1 C0.25,-0.5 0.55,-0.1 0.55,0.25 C0.55,0.6 0.28,0.8 0,0.8 C-0.28,0.8 -0.55,0.6 -0.55,0.25 C-0.55,-0.1 -0.25,-0.5 0,-1 Z" '
+            f'fill="#bfe6ff" stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"/>'
+            f'<ellipse cx="-0.2" cy="0.2" rx="0.1" ry="0.2" fill="#fff"/></g>')
+
+
+def falling_tear(x, y, s, t, drop=16):
+    """Tear swells while the stopwatch runs, then falls once it hits 10 s."""
+    if t >= 0.8:
+        k = (t - 0.8) / 0.2
+        return tear(x + 2 * k, y + drop * k, s, 1 - 0.7 * k)
+    return tear(x, y, s * max(0.2, min(1.0, t / 0.8 * 1.2)))
+
+
+def penlight(x, y, s, rot, glow, color=PENLIGHT, handle="#3a3036"):
+    """Glowing penlight. Origin = bottom of the handle."""
+    sw = 1.3 / s
+    return (f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">'
+            f'<ellipse cx="0" cy="-1.55" rx="{f(0.55 + 0.25 * glow)}" ry="{f(1.25 + 0.2 * glow)}" fill="url(#penGlow)" opacity="{f(0.55 + 0.45 * glow)}"/>'
+            f'<rect x="-0.17" y="-0.62" width="0.34" height="0.62" rx="0.08" fill="{handle}" stroke="{INK}" stroke-width="{f(sw)}"/>'
+            f'<rect x="-0.12" y="-0.48" width="0.24" height="0.06" fill="{GOLD}"/>'
+            f'<rect x="-0.2" y="-2.5" width="0.4" height="1.9" rx="0.2" fill="{color}" stroke="{INK}" stroke-width="{f(sw)}"/>'
+            f'<rect x="-0.09" y="-2.35" width="0.08" height="1.5" rx="0.04" fill="#fff" opacity="0.9"/>'
+            f'</g>')
+
+
+def grumpy_pepper(x, y, s, rot):
+    """Bell pepper with an annoyed face: she hates them (and sang Piman Taiso)."""
+    sw = 1.4 / s
+    st = f'stroke="{INK}" stroke-width="{f(sw)}" stroke-linejoin="round"'
+    return (f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">'
+            f'<path d="M0,0.28 C-0.45,0.1 -0.8,0.35 -0.72,0.95 C-0.66,1.45 -0.3,1.55 -0.12,1.38 '
+            f'C0,1.55 0.12,1.55 0.22,1.4 C0.4,1.6 0.8,1.4 0.8,0.9 C0.82,0.35 0.42,0.1 0,0.28 Z" fill="url(#pepperShine)" {st}/>'
+            f'<path d="M-0.12,0.5 C-0.2,0.85 -0.18,1.15 -0.1,1.32 M0.22,0.5 C0.32,0.85 0.3,1.15 0.22,1.36" fill="none" stroke="{PEPPER_DARK}" stroke-width="{f(sw * 0.9)}" stroke-linecap="round"/>'
+            f'<path d="M-0.36,0.3 C-0.15,0.12 0.15,0.12 0.38,0.3 C0.18,0.4 -0.15,0.42 -0.36,0.3 Z" fill="{PEPPER_DARK}" {st}/>'
+            f'<path d="M-0.05,0.24 C-0.05,0.1 0,-0.02 0.12,-0.1 L0.2,-0.02 C0.1,0.05 0.07,0.14 0.08,0.24 Z" fill="#6b8e23" {st}/>'
+            f'<path d="M-0.38,0.66 L-0.1,0.76 M0.48,0.66 L0.2,0.76" stroke="{INK}" stroke-width="{f(sw * 0.9)}" stroke-linecap="round"/>'
+            f'<path d="M-0.3,0.86 L-0.12,0.86 M0.22,0.86 L0.4,0.86" stroke="{INK}" stroke-width="{f(sw * 1.1)}" stroke-linecap="round"/>'
+            f'<path d="M-0.06,1.1 Q0.05,1.0 0.16,1.1" fill="none" stroke="{INK}" stroke-width="{f(sw * 0.8)}" stroke-linecap="round"/>'
+            f'<ellipse cx="-0.45" cy="0.42" rx="0.08" ry="0.16" transform="rotate(25 -0.45 0.42)" fill="#fff" opacity="0.8"/>'
+            f'</g>')
+
+
+def anger_mark(x, y, s, rot=0):
+    corners = "".join(
+        f'<path d="M0.25,0.9 Q0.25,0.25 0.9,0.25" fill="none" stroke="{CRIMSON}" stroke-width="0.32" stroke-linecap="round" transform="rotate({a})"/>'
+        for a in (0, 90, 180, 270))
+    return f'<g transform="translate({f(x)},{f(y)}) rotate({f(rot)}) scale({f(s)})">{corners}</g>'
+
+
+def hmph_bubble(x, y, t):
+    bob = 1.2 * wave(t, 0.3)
+    return (f'<g transform="translate({f(x)},{f(y + bob)}) rotate(6)">'
+            f'<path d="M-24,-10 H24 Q28,-10 28,-6 V6 Q28,10 24,10 H-6 L-14,17 L-12,10 H-24 Q-28,10 -28,6 V-6 Q-28,-10 -24,-10 Z" '
+            f'fill="#fff" stroke="{INK}" stroke-width="1.6" stroke-linejoin="round"/>'
+            f'<text x="0" y="4.4" text-anchor="middle" font-family="{FONT}" font-weight="900" font-size="12.5" fill="{CRIMSON}" letter-spacing="0.3">Hmph!</text>'
+            f'</g>')
+
+
+def mic(x, y, s):
+    """Stage microphone on a stand."""
+    sw = 1.2 / s
+    return (f'<g transform="translate({f(x)},{f(y)}) scale({f(s)})">'
+            f'<ellipse cx="0" cy="0" rx="0.9" ry="0.16" fill="#000" opacity="0.5"/>'
+            f'<path d="M-0.6,0 L0,-0.25 L0.6,0" fill="none" stroke="#2b2228" stroke-width="{f(sw * 2)}" stroke-linecap="round"/>'
+            f'<line x1="0" y1="-0.25" x2="0" y2="-2.9" stroke="#2b2228" stroke-width="{f(sw * 2)}"/>'
+            f'<line x1="0.08" y1="-0.4" x2="0.08" y2="-2.8" stroke="#8a7a82" stroke-width="{f(sw * 0.6)}"/>'
+            f'<g transform="translate(0,-3.05) rotate(-20)">'
+            f'<rect x="-0.14" y="0" width="0.28" height="0.6" rx="0.1" fill="#3a3036"/>'
+            f'<ellipse cx="0" cy="-0.12" rx="0.26" ry="0.32" fill="#d9d2d6" stroke="{INK}" stroke-width="{f(sw)}"/>'
+            f'<ellipse cx="-0.08" cy="-0.2" rx="0.06" ry="0.12" fill="#fff"/></g>'
+            f'</g>')
 
 
 # ---------------------------------------------------------------- decoration
@@ -316,70 +341,34 @@ def decoration(t):
     cx = cy = 144
     p = []
 
-    def polar(r, a):
-        a = math.radians(a)
-        return cx + r * math.cos(a), cy + r * math.sin(a)
+    # film strip wrapping the lower-left of the avatar
+    p.append(film_strip(cx, cy, 120, 140, 92, 206, t))
 
-    # halftone + dot sparkle clusters (same language as the Ruby set)
-    p.append(halftone(96, 10, 9, 3, 4.2, 1.7, "#ff8fb0"))
-    p.append(halftone(188, 266, 8, 3, 4.2, 1.6, "#ff8fb0", flip=True))
+    # white penlights crossed at the bottom-right (her member colour)
+    p.append(penlight(208, 272, 18, -24 + 4 * wave(t, 0.0), pulse(t, 0.0)))
+    p.append(penlight(238, 268, 18, 20 + 4 * wave(t, 0.5), pulse(t, 0.5)))
 
-    # lace ruffle across the bottom
-    p.append(lace_arc(cx, cy, 117, 136, 52, 128, 11))
+    # grumpy pepper + anger mark on the right
+    p.append(grumpy_pepper(270, 160, 18, 8 * wave(t, 0.1)))
+    p.append(anger_mark(282, 160, 5.2 * (0.85 + 0.2 * pulse(t, 0.0)), 10))
 
-    # long ribbon wrapping down the left side from the bow, ending over the lace
-    def left_path(u):
-        r = 131 + 3.5 * math.sin(math.radians(u) * 4 + 1)
-        return polar(r, u)
-    p.append(ribbon(left_path, -126, -222, 13, 3.3))
+    # stopwatch at the top-right with a tear that falls when it reaches 10 s
+    p.append(stopwatch(246, 74, 21, t))
+    p.append(falling_tear(219, 82, 4.8, t))
 
-    # short tail along the top toward the right
-    def top_path(u):
-        r = 132 + 3 * math.sin(math.radians(u) * 5)
-        return polar(r, u)
-    p.append(ribbon(top_path, -122, -86, 12, 1.4))
+    # tsundere bubble at the top
+    p.append(hmph_bubble(172, 18, t))
 
-    # phone with red bow, bottom-right, peeking over the rim like in the icon
-    bob = 1.2 * wave(t, 0.1)
-    p.append(phone(236, 228 + bob, 25, -22))
+    # clapperboard bottom-left, over the end of the film strip
+    p.append(clapperboard(54, 236, 27, -16, t))
 
-    # big crimson bow at top-left
-    p.append(bow(58, 46, 34, -28 + 2.5 * wave(t, 0.0)))
+    # the beret, worn tilted on the top-left of the avatar
+    p.append(beret(80, 52, 46, -28 + 1.5 * wave(t, 0.0)))
 
-    # right side heart cluster (white doodle hearts from the icon)
-    hearts = [
-        (264, 112, 21, "white", 12, 0.0),
-        (279, 143, 13, "white", -8, 0.25),
-        (259, 165, 15, "pink", 10, 0.5),
-        (277, 82, 11, "white", 18, 0.7),
-        (242, 86, 8, "crimson", -12, 0.4),
-    ]
-    for x, y, s, k, rot, ph in hearts:
-        p.append(heart(x, y + 2.2 * wave(t, ph), s, k, rot))
-
-    # two small hearts on the left ribbon side
-    p.append(heart(24, 214 + 2 * wave(t, 0.6), 12, "white", -14))
-    p.append(heart(44, 246 + 2 * wave(t, 0.15), 9, "pink", 8))
-
-    # teardrop: "cries in 10 seconds"
-    p.append(teardrop(271, 194 + 1.5 * wave(t, 0.3), 6))
-
-    # pepper charm + music notes at the top-right (Piman Taiso)
-    p.append(note(185, 18 + 1.5 * wave(t, 0.2), 6.5, CRIMSON, False, -10))
-    p.append(note(236, 20 + 1.5 * wave(t, 0.55), 6.5, PINK, True, 8))
-    p.append(pepper(211, 9, 16, 9 * wave(t, 0.0)))
-
-    # starry eye sparkle, top-right
-    p.append(eye_star(254, 48, 12 * (0.9 + 0.12 * wave(t, 0.0)), 10 * wave(t, 0.25)))
-
-    # white sparkles
-    for x, y, s, ph in [(150, 8, 6, 0.0), (24, 116, 5, 0.33), (279, 222, 5.5, 0.66),
-                        (88, 276, 6, 0.5), (14, 172, 4, 0.15), (126, 22, 3.5, 0.8)]:
-        k = 0.55 + 0.45 * (0.5 + 0.5 * wave(t, ph))
-        p.append(sparkle(x, y, s * k))
-    # tiny dots
-    for x, y, r in [(166, 14, 1.2), (36, 98, 1.4), (284, 196, 1.2), (70, 282, 1.3), (8, 150, 1.1)]:
-        p.append(f'<circle cx="{x}" cy="{y}" r="{r}" fill="{INK}"/>')
+    for x, y, s, c, ph in [(140, 8, 5, GOLD, 0.0), (22, 112, 5.5, "#fff", 0.3), (280, 214, 5, GOLD, 0.6),
+                           (110, 280, 5.5, "#fff", 0.15), (12, 160, 4, GOLD, 0.45), (276, 120, 3.5, "#fff", 0.8),
+                           (205, 12, 3.5, "#fff", 0.7)]:
+        p.append(sparkle(x, y, s * (0.5 + 0.55 * pulse(t, ph)), c, outline=True))
 
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="288" height="288" viewBox="0 0 288 288">'
             f'{defs()}{"".join(p)}</svg>')
@@ -390,92 +379,104 @@ def decoration(t):
 def banner(t):
     W, H = 448, 84
     p = [f"""
-<linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
-  <stop offset="0" stop-color="#14040b"/>
-  <stop offset="0.38" stop-color="#3a0a1e"/>
-  <stop offset="0.75" stop-color="#7d1a3d"/>
-  <stop offset="1" stop-color="#b8406a"/>
-</linearGradient>
-<linearGradient id="vig" x1="0" y1="0" x2="0" y2="1">
-  <stop offset="0" stop-color="#000" stop-opacity="0.25"/>
-  <stop offset="0.5" stop-color="#000" stop-opacity="0"/>
-  <stop offset="1" stop-color="#000" stop-opacity="0.35"/>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#0c0307"/><stop offset="0.55" stop-color="#22060f"/><stop offset="1" stop-color="#3d0a1c"/>
 </linearGradient>
 <rect width="{W}" height="{H}" fill="url(#bg)"/>"""]
 
-    # stage spotlight beams from the top-right
-    for x0, spread, op in [(430, 70, 0.5), (360, 55, 0.35), (300, 45, 0.22)]:
-        sway = 4 * wave(t, x0 / 100)
-        p.append(f'<path d="M{x0},-4 L{x0 - spread - 60 + sway},{H} L{x0 - 25 + sway},{H} Z" fill="url(#beam)" opacity="{op}"/>')
+    # spotlight on centre stage
+    sx = 352
+    inten = 0.85 + 0.15 * wave(t, 0.0)
+    p.append(f'<path d="M{sx - 10},0 L{sx + 10},0 L{sx + 52},{H - 12} L{sx - 52},{H - 12} Z" fill="url(#spot)" opacity="{f(inten)}"/>')
+    p.append(f'<ellipse cx="{sx}" cy="{H - 12}" rx="54" ry="7" fill="#fff6e0" opacity="{f(0.28 * inten)}" filter="url(#blur3)"/>')
+    for i in range(9):
+        ph = i / 9
+        yy = 10 + 60 * ((t + ph) % 1)
+        xx = sx - 20 + 40 * ((i * 0.37) % 1) + 3 * wave(t, ph)
+        p.append(f'<circle cx="{f(xx)}" cy="{f(yy)}" r="0.8" fill="#fff" opacity="{f(0.3 + 0.5 * pulse(t, ph))}"/>')
+    p.append(mic(sx, H - 12, 15))
 
-    # bokeh
-    bokeh = [(250, 30, 14, "#ff7aa3", 0.25, 0.0), (300, 66, 10, "#ffb3cb", 0.22, 0.3),
-             (340, 18, 8, "#ffd1e0", 0.3, 0.6), (395, 70, 16, "#ff6f96", 0.22, 0.1),
-             (180, 60, 12, "#c2456e", 0.18, 0.8), (120, 22, 9, "#8e1f45", 0.25, 0.45),
-             (430, 40, 9, "#fff", 0.18, 0.7), (60, 64, 10, "#5a0f2a", 0.35, 0.2)]
-    for x, y, r, c, op, ph in bokeh:
-        p.append(f'<circle cx="{f(x + 3 * wave(t, ph))}" cy="{y}" r="{r}" fill="{c}" opacity="{op}" filter="url(#blur4)"/>')
-    p.append(f'<rect width="{W}" height="{H}" fill="url(#vig)"/>')
+    # side curtains, tied back with gold rope
+    for side in (0, 1):
+        if side == 0:
+            d = f"M0,0 L46,0 C34,20 22,30 18,44 C22,58 16,72 10,{H} L0,{H} Z"
+            tie = (17, 46)
+        else:
+            d = f"M{W},0 L{W - 42},0 C{W - 32},22 {W - 22},32 {W - 17},46 C{W - 20},60 {W - 14},72 {W - 10},{H} L{W},{H} Z"
+            tie = (W - 17, 47)
+        p.append(f'<path d="{d}" fill="url(#velvet)" stroke="{INK}" stroke-width="1.2"/>')
+        p.append(f'<ellipse cx="{tie[0]}" cy="{tie[1]}" rx="7" ry="3" fill="url(#gold)" stroke="{INK}" stroke-width="0.8"/>')
+        p.append(f'<path d="M{tie[0] - 1},{tie[1] + 2} L{tie[0] - 3},{tie[1] + 13} L{tie[0] + 3},{tie[1] + 13} Z" fill="url(#gold)" stroke="{INK}" stroke-width="0.7"/>')
 
-    # lace trim along the bottom right
-    sc = []
-    x = 214
-    sc.append(f"M{x},{H + 2} L{x},{H - 6}")
-    while x < W + 10:
-        sc.append(f"C{x + 1},{H - 13} {x + 9},{H - 13} {x + 10},{H - 6}")
-        x += 10
-    sc.append(f"L{x},{H + 2} Z")
-    p.append(f'<path d="{" ".join(sc)}" fill="{PINK_LACE}" opacity="0.92" stroke="{INK}" stroke-width="1.2"/>')
-    for i in range(23):
-        xx = 219 + i * 10
-        if xx < W:
-            p.append(f'<circle cx="{xx}" cy="{H - 4}" r="1.3" fill="#fff" stroke="{PINK_LACE_SHADE}" stroke-width="0.7"/>')
+    # top valance swags with gold trim and tassels
+    n = 7
+    w = W / n
+    for i in range(n):
+        x0 = i * w
+        p.append(f'<path d="M{f(x0)},0 L{f(x0 + w)},0 L{f(x0 + w)},5 Q{f(x0 + w / 2)},22 {f(x0)},5 Z" fill="url(#valance)" stroke="{INK}" stroke-width="1"/>')
+        p.append(f'<path d="M{f(x0 + 1)},6 Q{f(x0 + w / 2)},21 {f(x0 + w - 1)},6" fill="none" stroke="url(#gold)" stroke-width="1.6"/>')
+    for i in range(n + 1):
+        x0 = i * w
+        sway = 1.5 * wave(t, i / n)
+        p.append(f'<path d="M{f(x0)},4 L{f(x0 - 2.5 + sway)},14 L{f(x0 + 2.5 + sway)},14 Z" fill="url(#gold)" stroke="{INK}" stroke-width="0.6"/>')
+        p.append(f'<circle cx="{f(x0)}" cy="5" r="2" fill="url(#gold)" stroke="{INK}" stroke-width="0.6"/>')
 
-    # ribbon garland swag across the top right
-    def swag(u):
-        return 228 + u * 150, 2 + 22 * math.sin(math.pi * u) ** 1.3
-    p.append(ribbon(swag, 0, 1, 8, 2.2, notch=False, steps=70))
+    # marquee sign with chasing bulbs
+    mx0, my0, mw, mh = 154, 22, 140, 40
+    p.append(f'<rect x="{mx0}" y="{my0}" width="{mw}" height="{mh}" rx="7" fill="url(#gold)" stroke="{INK}" stroke-width="1.4"/>')
+    p.append(f'<rect x="{mx0 + 5}" y="{my0 + 5}" width="{mw - 10}" height="{mh - 10}" rx="4" fill="#5a0a20" stroke="{INK}" stroke-width="1"/>')
+    perim = []
+    for i in range(16):
+        perim.append((mx0 + 7 + i * (mw - 14) / 15, my0 + 2.6))
+    for i in range(4):
+        perim.append((mx0 + mw - 2.6, my0 + 8 + i * (mh - 16) / 3))
+    for i in range(16):
+        perim.append((mx0 + mw - 7 - i * (mw - 14) / 15, my0 + mh - 2.6))
+    for i in range(4):
+        perim.append((mx0 + 2.6, my0 + mh - 8 - i * (mh - 16) / 3))
+    phase = int(t * 15) % 3
+    bulbs = []
+    for i, (bx, by) in enumerate(perim):
+        on = (i % 3) == phase
+        bulbs.append(f'<circle cx="{f(bx)}" cy="{f(by)}" r="1.5" fill="{"#fffbe8" if on else "#c58a2e"}"/>')
+        if on:
+            bulbs.append(f'<circle cx="{f(bx)}" cy="{f(by)}" r="3.4" fill="#fff3c4" opacity="0.45" filter="url(#blur1)"/>')
+    p.append("".join(bulbs))
+    p.append(f'<text x="{mx0 + mw / 2}" y="{my0 + 24}" text-anchor="middle" font-family="{FONT}" font-weight="900" '
+             f'font-size="15" fill="{IVORY}" letter-spacing="1" filter="url(#textGlow)">ARIMA KANA</text>')
+    p.append(f'<text x="{mx0 + mw / 2}" y="{my0 + 32.5}" text-anchor="middle" font-family="{FONT_JP}" font-size="6.2" '
+             f'fill="{GOLD}" letter-spacing="0.6">★ 10秒で泣ける天才役者 ★</text>')
+    p.append(beret(mx0 + 8, my0 - 3, 20, -22))
 
-    def swag2(u):
-        return 378 + u * 80, 4 + 14 * math.sin(math.pi * u * 0.9)
-    p.append(ribbon(swag2, 0, 1, 8, 1.4, notch=False, steps=50))
+    # audience: a sea of penlights in B-Komachi colours, one big white one for her
+    lights = []
+    colors = [("#ff8fbf", "#ff8fbf"), ("#ffe066", "#ffe066"), ("#ffffff", PENLIGHT_GLOW)]
+    for i in range(30):
+        lx = 30 + i * 13.3
+        if abs(lx - sx) < 8:
+            continue
+        c, gc = colors[(i * 7) % 3]
+        ang = 16 * wave(t, (i % 5) / 5)
+        lights.append(
+            f'<g transform="translate({f(lx)},{H - 1}) rotate({f(ang)})">'
+            f'<ellipse cx="0" cy="-11" rx="2.6" ry="6" fill="{gc}" opacity="0.28" filter="url(#blur1)"/>'
+            f'<rect x="-1" y="-15" width="2" height="10" rx="1" fill="{c}" opacity="0.9"/>'
+            f'<rect x="-0.8" y="-5" width="1.6" height="5" fill="#2a2226"/></g>')
+    p.append("".join(lights))
+    heads = [f'<ellipse cx="{f(20 + i * 18.4 + (6 if i % 2 else 0))}" cy="{H + 2}" rx="9" ry="8" fill="#0a0205"/>' for i in range(24)]
+    p.append("".join(heads))
+    p.append(penlight(sx - 2, H + 2, 9.5, 10 * wave(t, 0.0), pulse(t, 0.0)))
+    p.append(sparkle(sx + 10, H - 30, 3.5 * (0.6 + 0.6 * pulse(t, 0.2)), "#fff"))
 
-    # chain + pepper charm hanging from the bow
-    sway = 7 * wave(t, 0.0)
-    ax, ay = 378, 10
-    beads = []
-    for i in range(1, 6):
-        k = i / 6 * 0.75
-        bx = ax + math.sin(math.radians(sway)) * 34 * k
-        by = ay + math.cos(math.radians(sway)) * 34 * k
-        beads.append(f'<circle cx="{f(bx)}" cy="{f(by)}" r="1.7" fill="none" stroke="{INK}" stroke-width="0.9"/>'
-                     f'<circle cx="{f(bx)}" cy="{f(by)}" r="1.2" fill="none" stroke="#f3d7e0" stroke-width="0.6"/>')
-    p.append("".join(beads))
-    ex = ax + math.sin(math.radians(sway)) * 28
-    ey = ay + math.cos(math.radians(sway)) * 28
-    p.append(pepper(ex, ey, 12, -sway))
-    p.append(bow(ax, ay, 22, -6 + 2 * wave(t, 0.5)))
+    # side props: grumpy pepper with anger mark, stopwatch + tear
+    p.append(grumpy_pepper(398, 22, 12, 8 * wave(t, 0.2)))
+    p.append(anger_mark(410, 24, 3.4, 10))
+    p.append(stopwatch(312, 50, 11, t))
+    p.append(falling_tear(298, 58, 3.1, t, drop=8))
 
-    # floating hearts
-    hearts = [(262, 52, 15, "white", -10, 0.0), (296, 34, 9, "pink", 12, 0.3),
-              (330, 58, 12, "white", 6, 0.55), (420, 28, 12, "white", 14, 0.8),
-              (440, 62, 9, "pink", -8, 0.15), (230, 30, 7, "crimson", 10, 0.65),
-              (175, 40, 6, "white", -6, 0.4)]
-    for x, y, s, k, rot, ph in hearts:
-        p.append(heart(x, y + 2.5 * wave(t, ph), s, k, rot))
-
-    p.append(teardrop(312, 70 + 1.5 * wave(t, 0.2), 5))
-    p.append(note(352, 38 + 2 * wave(t, 0.35), 6, PINK, True, -8))
-    p.append(note(404, 50 + 2 * wave(t, 0.75), 5.5, "#fff", False, 10))
-
-    # the big starry eye sparkle
-    p.append(eye_star(355, 16, 10 * (0.9 + 0.12 * wave(t, 0.0)), 8 * wave(t, 0.3)))
-
-    for x, y, s, ph in [(280, 14, 4.5, 0.0), (244, 70, 3.5, 0.4), (318, 22, 3, 0.7),
-                        (436, 12, 4, 0.25), (150, 18, 3, 0.55), (96, 58, 2.5, 0.85),
-                        (205, 12, 3, 0.1)]:
-        k = 0.5 + 0.5 * (0.5 + 0.5 * wave(t, ph))
-        p.append(sparkle(x, y, s * k, "#fff", 0, outline=False))
+    for x, y, s, c, ph in [(64, 18, 3.5, GOLD, 0.0), (318, 24, 3, "#fff", 0.35), (392, 56, 3.2, GOLD, 0.7),
+                           (420, 34, 2.8, "#fff", 0.5), (120, 54, 2.6, "#fff", 0.2), (140, 26, 2.8, GOLD, 0.85)]:
+        p.append(sparkle(x, y, s * (0.5 + 0.6 * pulse(t, ph)), c))
 
     return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
             f'{defs()}{"".join(p)}</svg>')
@@ -511,20 +512,20 @@ def save_gif(frames, path):
 
 def main():
     ts = [i / N_FRAMES for i in range(N_FRAMES)]
+    still = 0.84  # tear mid-fall, used for the static images
 
     deco = render([(f"deco_{i:02d}", decoration(t)) for i, t in enumerate(ts)], 1)
-    deco[0].save(os.path.join(OUT, "kana-decoration.png"))
     save_apng(deco, os.path.join(OUT, "kana-decoration.apng"))
+    render([("deco_still", decoration(still))], 1)[0].save(os.path.join(OUT, "kana-decoration.png"))
     with open(os.path.join(OUT, "kana-decoration.svg"), "w") as fh:
-        fh.write(decoration(0))
+        fh.write(decoration(still))
 
-    ban1 = render([(f"ban_{i:02d}", banner(t)) for i, t in enumerate(ts)], 1)
-    ban1[0].convert("RGB").save(os.path.join(OUT, "kana-banner.png"))
-    save_gif(ban1, os.path.join(OUT, "kana-banner.gif"))
-    ban2 = render([("ban_hd", banner(0))], 2)
-    ban2[0].convert("RGB").save(os.path.join(OUT, "kana-banner@2x.png"))
+    ban = render([(f"ban_{i:02d}", banner(t)) for i, t in enumerate(ts)], 2)
+    save_gif(ban, os.path.join(OUT, "kana-banner.gif"))
+    render([("ban_still2", banner(still))], 2)[0].convert("RGB").save(os.path.join(OUT, "kana-banner@2x.png"))
+    render([("ban_still1", banner(still))], 1)[0].convert("RGB").save(os.path.join(OUT, "kana-banner.png"))
     with open(os.path.join(OUT, "kana-banner.svg"), "w") as fh:
-        fh.write(banner(0))
+        fh.write(banner(still))
 
     print("done ->", OUT)
 
