@@ -1,9 +1,12 @@
 """Parsing of osu!standard beatmaps (.osu / .osz) and slider geometry."""
 
 import bisect
+import hashlib
 import io
 import math
 import os
+import shutil
+import tempfile
 import zipfile
 
 PLAYFIELD_W = 512
@@ -43,6 +46,16 @@ class FolderSource:
         except OSError:
             self._names = {}
 
+    def path_for(self, name):
+        if not name:
+            return None
+        name = name.replace("\\", "/")
+        path = os.path.join(self.folder, name)
+        if os.path.isfile(path):
+            return path
+        real = self._names.get(name.lower())
+        return os.path.join(self.folder, real) if real else None
+
     def read(self, name):
         if not name:
             return None
@@ -72,6 +85,24 @@ class ZipSource:
         if real is None:
             return None
         return self.zip.read(real)
+
+    def path_for(self, name):
+        """Extract a member (e.g. a video) to a cache folder so ffmpeg can open it."""
+        real = self._names.get((name or "").replace("\\", "/").lower())
+        if real is None:
+            return None
+        info = self.zip.getinfo(real)
+        key = hashlib.sha1(f"{os.path.abspath(self.zip.filename)}|{real}|{info.file_size}|"
+                           f"{info.CRC}".encode("utf-8", "replace")).hexdigest()[:16]
+        folder = os.path.join(tempfile.gettempdir(), "osu-bot-cache")
+        os.makedirs(folder, exist_ok=True)
+        out = os.path.join(folder, key + os.path.splitext(real)[1].lower())
+        if not os.path.isfile(out) or os.path.getsize(out) != info.file_size:
+            tmp = out + ".part"
+            with self.zip.open(real) as src, open(tmp, "wb") as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+            os.replace(tmp, out)
+        return out
 
     def osu_members(self):
         return [n for n in self.zip.namelist() if n.lower().endswith(".osu")]
@@ -168,11 +199,15 @@ class BeatmapInfo:
         self.slider_tick_rate = fnum(d.get("SliderTickRate"), 1)
         self.sections = s
         self.background = None
+        self.video = None  # (offset_ms, filename)
         for line in s.get("Events", []):
             parts = [p.strip() for p in line.split(",")]
-            if len(parts) >= 3 and parts[0] == "0":
+            if len(parts) < 3:
+                continue
+            if parts[0] == "0" and self.background is None:
                 self.background = parts[2].strip('"')
-                break
+            elif parts[0] in ("1", "Video") and self.video is None:
+                self.video = (fnum(parts[1], 0), parts[2].strip('"'))
 
     @property
     def label(self):
@@ -672,6 +707,14 @@ class Beatmap:
         if self.source is None:
             return None
         return self.source.read(self.info.audio)
+
+    def video_path(self):
+        if self.source is None or not self.info.video or not hasattr(self.source, "path_for"):
+            return None
+        try:
+            return self.source.path_for(self.info.video[1])
+        except (OSError, KeyError, ValueError):
+            return None
 
     def background_bytes(self):
         if self.source is None or not self.info.background:

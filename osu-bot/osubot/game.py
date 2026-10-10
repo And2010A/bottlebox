@@ -3,6 +3,7 @@
 import os
 import random
 import sys
+import time
 
 import pygame
 
@@ -42,7 +43,8 @@ class App:
         self.text = Text()
         self.clock = pygame.time.Clock()
         self.settings = {"mode": "grade", "target": "SS", "skill": 7, "mods": set(),
-                         "hitsounds": True, "trail": True, "dim": 55, "ruleset": "osu"}
+                         "hitsounds": True, "trail": True, "dim": 55, "ruleset": "osu",
+                         "video": True}
         self.entries = []
         self.selected = 0
         self.map_name = None
@@ -188,6 +190,37 @@ def selftest():
             pygame.display.flip()
         scene.finish()
         app.scene.draw(app.screen)
+    # a beatmap with a background video, decoded by the bundled ffmpeg
+    import subprocess
+    import tempfile
+    from .video import _popen_flags, ffmpeg_exe
+    exe = ffmpeg_exe()
+    if not exe:
+        raise RuntimeError("ffmpeg is not bundled")
+    folder = tempfile.mkdtemp(prefix="osu-bot-selftest-")
+    subprocess.run([exe, "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "testsrc=size=640x360:rate=30", "-t", "6", "-pix_fmt", "yuv420p",
+                    os.path.join(folder, "video.mp4")], check=True, **_popen_flags())
+    osu = os.path.join(folder, "map.osu")
+    with open(osu, "w", encoding="utf-8") as f:
+        f.write(demo_osu().replace("[Events]\n", '[Events]\nVideo,0,"video.mp4"\n'))
+    app.load_file(osu)
+    app.settings["ruleset"] = "osu"
+    app.start_play()
+    scene = app.scene
+    if getattr(scene, "video", None) is None:
+        raise RuntimeError(f"video not loaded: {getattr(scene, 'video_note', app.error)}")
+    scene.seek(1500)
+    deadline = time.perf_counter() + 5
+    while scene.video.current is None and time.perf_counter() < deadline:
+        pygame.event.pump()
+        scene.update()
+        scene.draw(app.screen)
+        pygame.display.flip()
+    if scene.video.current is None:
+        raise RuntimeError("no video frames decoded")
+    scene.stop()
+
     from .ui import FONT_DIR
     for name in Text.FILES.values():
         if not os.path.isfile(os.path.join(FONT_DIR, name)):

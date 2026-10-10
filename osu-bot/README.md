@@ -34,6 +34,19 @@
 Під час вступу й перерв фон світлішає, як в osu!. Кнопка «Затемнення» змінює затемнення
 (35 / 55 / 70 / 85%).
 
+## Відео-фон
+
+Якщо в карті є відео (рядок `Video,...` у `[Events]`, файли .mp4 / .avi / .flv тощо),
+воно грає замість картинки синхронно з музикою, з DT/HT так само прискорюється
+чи сповільнюється. Вимкнути можна кнопкою «Відео» в меню. Відео декодує окремий
+процес ffmpeg, який входить в exe, тому гра не гальмує.
+
+## Плавність
+
+* Тіла слайдерів малюються заздалегідь, по кілька штук за кадр, а не в момент появи.
+* Під час гри вимикається збирач сміття Python, щоб не було мікрофризів.
+* Кола наближення малюються напряму, без масштабування картинок.
+
 ## Режими бота
 
 **Ціль: ранг.** Обираєш, який ранг має вийти: `SS S A B C D F`.
@@ -92,7 +105,7 @@ SS = 100%, S > 98%, A > 94%, B > 90%, C > 85%, D — менше.
 cd osu-bot
 pip install -r requirements.txt pyinstaller pillow
 python tools/make_icon.py icon.png
-pyinstaller --onefile --windowed --name OsuBotClaude --icon icon.png --add-data "osubot/fonts;osubot/fonts" main.py
+pyinstaller --onefile --windowed --name OsuBotClaude --icon icon.png --add-data "osubot/fonts;osubot/fonts" --collect-all imageio_ffmpeg main.py
 ```
 
 Готовий файл з'явиться в `dist\OsuBotClaude.exe`. Без збірки можна запустити так: `python main.py`.

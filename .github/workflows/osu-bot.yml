@@ -32,7 +32,7 @@ jobs:
       - name: Build exe
         run: |
           python tools/make_icon.py icon.png
-          pyinstaller --noconfirm --onefile --windowed --name OsuBotClaude --icon icon.png --add-data "osubot/fonts;osubot/fonts" main.py
+          pyinstaller --noconfirm --onefile --windowed --name OsuBotClaude --icon icon.png --add-data "osubot/fonts;osubot/fonts" --collect-all imageio_ffmpeg main.py
 
       - name: Smoke test the exe
         shell: pwsh

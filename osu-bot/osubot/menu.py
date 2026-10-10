@@ -107,9 +107,10 @@ class MenuScene:
             btn.mod = m
             self.mod_buttons.append(btn)
 
-        self.hs_button = b((660, 462, 186, 44), "", self.toggle_hs, size=24)
-        self.trail_button = b((857, 462, 186, 44), "", self.toggle_trail, size=24)
-        self.dim_button = b((1054, 462, 186, 44), "", self.cycle_dim, size=24)
+        self.hs_button = b((660, 462, 137, 44), "", self.toggle_hs, size=23)
+        self.trail_button = b((808, 462, 137, 44), "", self.toggle_trail, size=23)
+        self.video_button = b((956, 462, 137, 44), "", self.toggle_video, size=23)
+        self.dim_button = b((1104, 462, 136, 44), "", self.cycle_dim, size=23)
         self.play_button = b((660, 540, 580, 84), "ГРАТИ  (Enter)", self.app.start_play,
                              colour=(70, 190, 120), size=46, sel_colour=(70, 190, 120))
         self.diff_buttons = []
@@ -133,9 +134,11 @@ class MenuScene:
         for btn in self.mod_buttons:
             btn.selected = btn.mod in s["mods"]
         self.hs_button.label = "Звуки: " + ("так" if s["hitsounds"] else "ні")
-        self.trail_button.label = "Слід курсора: " + ("так" if s["trail"] else "ні")
+        self.trail_button.label = "Слід: " + ("так" if s["trail"] else "ні")
+        self.video_button.label = "Відео: " + ("так" if s["video"] else "ні")
+        self.video_button.selected = s["video"]
         self.trail_button.enabled = ruleset == "osu"
-        self.dim_button.label = f"Затемнення: {s['dim']}%"
+        self.dim_button.label = f"Фон: {s['dim']}%"
         self.hs_button.selected = s["hitsounds"]
         self.trail_button.selected = s["trail"] and ruleset == "osu"
         self.play_button.enabled = info is not None and info.mode in PLAYABLE_MODES
@@ -204,6 +207,11 @@ class MenuScene:
     def toggle_trail(self):
         s = self.app.settings
         s["trail"] = not s["trail"]
+        self._sync()
+
+    def toggle_video(self):
+        s = self.app.settings
+        s["video"] = not s["video"]
         self._sync()
 
     def cycle_dim(self):
@@ -322,8 +330,13 @@ class MenuScene:
                 (730, 368))
         if s["mode"] == "grade" and s["target"] == "F" and "NF" in s["mods"]:
             tx.draw(surf, "NF не діє з ціллю F", 22, (255, 140, 120), (1240, 368), "topright")
+        notes = []
         if self.preview is not None and a.entries[a.selected][0].mode == 2:
-            tx.draw(surf, "Це карта osu!catch — бот ловить фрукти", 22, MUTED, (660, 632))
+            notes.append("карта osu!catch — бот ловить фрукти")
+        if a.entries and a.entries[a.selected][0].video:
+            notes.append("у карті є відео-фон" + ("" if s["video"] else " (вимкнено)"))
+        if notes:
+            tx.draw(surf, "  •  ".join(notes), 22, MUTED, (660, 632))
         tx.draw(surf, "Esc — меню/вихід   R — заново   P — пауза   Space — пропуск   F11 — повний екран",
                 22, MUTED, (640, 706), "center")
 

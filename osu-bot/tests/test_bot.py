@@ -144,3 +144,19 @@ def test_catch_skill_scales():
 def test_taiko_mania_rejected_with_message():
     with pytest.raises(BeatmapError, match="taiko"):
         Beatmap(demo_osu().replace("Mode: 0", "Mode: 1"))
+
+
+def test_video_event_and_extraction(tmp_path):
+    from osubot.beatmap import parse_info
+    text = demo_osu().replace("[Events]\n", '[Events]\n0,0,"bg.jpg",0,0\nVideo,-250,"clip.MP4"\n')
+    info = parse_info(text)
+    assert info.video == (-250, "clip.MP4") and info.background == "bg.jpg"
+    assert parse_info(demo_osu().replace("[Events]\n", '[Events]\n1,100,"v.avi"\n')).video == (100, "v.avi")
+    osz = tmp_path / "v.osz"
+    with zipfile.ZipFile(osz, "w") as z:
+        z.writestr("map.osu", text)
+        z.writestr("clip.mp4", b"x" * 1000)
+    (_, src, t), = list_difficulties(str(osz))
+    path = Beatmap(t, (), src).video_path()
+    assert path and os.path.getsize(path) == 1000
+    assert src.path_for("clip.mp4") == path  # cached, case-insensitive

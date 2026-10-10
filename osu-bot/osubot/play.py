@@ -1,10 +1,12 @@
 """Playback scenes: the shared base (clock, music, background, HUD) and osu!standard."""
 
 import bisect
+import gc
 import math
 import time
 
 import pygame
+import pygame.gfxdraw
 
 from .beatmap import as_file
 from .sim import FOLLOW_SCALE
@@ -29,6 +31,18 @@ class BasePlayScene:
         self.failed_real = None
         self.finished = False
         self.bg_img = load_image(bm.background_bytes(), bm.info.background)
+        self.video = None
+        self.video_note = None
+        if app.settings.get("video", True) and bm.info.video:
+            path = bm.video_path()
+            if path:
+                from .video import VideoPlayer
+                self.video = VideoPlayer(path, bm.info.video[0], (view.win_w, view.win_h), bm.rate)
+                if self.video.failed:
+                    self.video_note = "відео не вдалося відкрити"
+                    self.video = None
+            else:
+                self.video_note = "файл відео не знайдено"
         self.dim_now = 1.0
         self.avatar = None
         self.music = None
@@ -45,6 +59,9 @@ class BasePlayScene:
         self.base_game = self.start_game
         self.real_start = self.base_real = time.perf_counter()
         self.auto_skip_at = self.base_real + 3.0
+        # no garbage-collector pauses in the middle of a stream
+        gc.collect()
+        gc.freeze()
 
     def first_time(self):
         return self.bm.objects[0].time
@@ -61,6 +78,8 @@ class BasePlayScene:
         self.overlay = pygame.Surface(size, pygame.SRCALPHA)
         self.avatar = make_icon(max(16, int(view.s(30))))
         self.build_sprites()
+        if self.video is not None and not self.finished:
+            self.video.resize(size, self.now())
 
     def build_sprites(self):
         pass
@@ -124,6 +143,9 @@ class BasePlayScene:
 
     def stop(self):
         self._stop_music()
+        if self.video is not None:
+            self.video.stop()
+        gc.unfreeze()
         try:
             pygame.mixer.music.unload()
         except Exception:
@@ -141,6 +163,8 @@ class BasePlayScene:
         self.music_started = False
         if game_t >= 0:
             self._start_music(game_t)
+        if self.video is not None:
+            self.video.start(game_t)
         self.sound_idx = bisect.bisect_left([e[0] for e in self.sound_events], game_t)
 
     def toggle_pause(self):
@@ -211,6 +235,11 @@ class BasePlayScene:
             return
         self.finished = True
         self._stop_music(800)
+        if self.video is not None:
+            if self.video.current is not None:
+                self.background = self.video.current.copy()
+            self.video.stop()
+        gc.unfreeze()
         from .results import ResultScene
         self.app.scene = ResultScene(self.app, self)
 
@@ -244,7 +273,12 @@ class BasePlayScene:
         target = dim * 0.45 if self.in_break(t) else dim
         self.dim_now += (target - self.dim_now) * 0.05
         fade_in = max(0.0, 1 - (time.perf_counter() - self.real_start) / 0.8)
-        surf.blit(self.background, (0, 0))
+        frame = self.video.frame_for(t) if self.video is not None else None
+        if frame is not None:
+            fw, fh = frame.get_size()
+            surf.blit(frame, ((view.win_w - fw) // 2, (view.win_h - fh) // 2))
+        else:
+            surf.blit(self.background, (0, 0))
         a = max(self.dim_now, fade_in)
         if a > 0.004:
             self.dim_surf.set_alpha(int(255 * min(1.0, a)))
@@ -285,8 +319,10 @@ class BasePlayScene:
         info = self.bm.info
         tx.draw(surf, f"{info.artist} - {info.title} [{info.version}]"[:70], 22, MUTED,
                 (1260, 712), "bottomright")
-        if self.music_note:
-            tx.draw(surf, f"Музика: {self.music_note}", 22, MUTED, (1260, 690), "bottomright")
+        notes = [n for n in (self.music_note and f"Музика: {self.music_note}",
+                             self.video_note and f"Відео: {self.video_note}") if n]
+        for k, n in enumerate(notes):
+            tx.draw(surf, n, 22, MUTED, (1260, 690 - 22 * k), "bottomright")
         if self.skip_to is not None and t < self.skip_to:
             tx.draw(surf, "SPACE — пропустити вступ", 32, WHITE, (1240, 630), "bottomright")
 
@@ -299,11 +335,14 @@ class Sprites:
     def __init__(self, bm, text):
         self.r = bm.radius * view.pf_scale
         self.circles = [self._circle(c) for c in bm.colours]
-        self.approach = [self._ring(c) for c in bm.colours]
         self.numbers = {}
         self.font = text.font_px(max(10, int(self.r * 1.15)), "black")
         self.cursor = self._cursor()
-        self.trail = self._dot(max(2, int(self.r * 0.32)), (255, 200, 120))
+        dot = self._dot(max(2, int(self.r * 0.32)), (255, 200, 120))
+        self.trail = []
+        for k in range(1, 27):
+            w = max(2, int(dot.get_width() * (1 - 0.5 * k / 26)))
+            self.trail.append(pygame.transform.smoothscale(dot, (w, w)))
         self.follow = self._ring((255, 255, 255), base=max(8, int(self.r * FOLLOW_SCALE * 2)),
                                  width=0.05)
         self.ball = self._ball()
@@ -372,11 +411,43 @@ class StdPlayScene(BasePlayScene):
                              if e.value and (e.kind == "judge" and bm.objects[e.obj].kind != "slider"
                                              or e.kind == "part")]
         self.err_times = [e[0] for e in play.hit_errors]
+        self.starts = [o.time for o in bm.objects]
+        self.vis_ptr = 0
+        self.build_ptr = 0
         self.on_resize()
 
     def build_sprites(self):
         self.sprites = Sprites(self.bm, self.app.text)
         self.slider_cache = {}
+        self.build_ptr = 0
+        self.prebuild(self.now(), budget_ms=80)
+
+    def prebuild(self, t, budget_ms=3.0):
+        """Render slider bodies a little before they appear, a few per frame."""
+        objs = self.bm.objects
+        horizon = t + self.bm.preempt + 2000
+        deadline = time.perf_counter() + budget_ms / 1000
+        while self.build_ptr < len(objs) and objs[self.build_ptr].time - self.bm.preempt <= horizon:
+            if time.perf_counter() > deadline:
+                break
+            o = objs[self.build_ptr]
+            if o.kind == "slider" and o.end_time + 300 >= t:
+                self.slider_surface(self.build_ptr, o)
+            self.build_ptr += 1
+        # forget the ones that are long gone
+        if len(self.slider_cache) > 64:
+            for i in [i for i in self.slider_cache if objs[i].end_time + 1000 < t]:
+                del self.slider_cache[i]
+
+    def update(self):
+        super().update()
+        if not self.paused:
+            self.prebuild(self.now())
+
+    def seek(self, game_t):
+        super().seek(game_t)
+        self.build_ptr = 0
+        self.prebuild(game_t, budget_ms=80)
 
     # --- playfield --------------------------------------------------------------
     def draw_playfield(self, surf, t):
@@ -419,14 +490,13 @@ class StdPlayScene(BasePlayScene):
         return self.slider_cache[i]
 
     def visible(self, t):
-        out = []
-        pre = self.bm.preempt
-        for i, o in enumerate(self.bm.objects):
-            if o.time - pre > t:
-                break
-            if o.end_time + 800 >= t:
-                out.append(i)
-        return out
+        objs = self.bm.objects
+        if self.vis_ptr < len(objs) and objs[self.vis_ptr].time > t + 1000:
+            self.vis_ptr = 0  # time went backwards (restart)
+        while self.vis_ptr < len(objs) and objs[self.vis_ptr].end_time + 800 < t:
+            self.vis_ptr += 1
+        hi = bisect.bisect_right(self.starts, t + self.bm.preempt)
+        return [i for i in range(self.vis_ptr, hi) if objs[i].end_time + 800 >= t]
 
     def draw_objects(self, surf, t):
         bm = self.bm
@@ -509,9 +579,11 @@ class StdPlayScene(BasePlayScene):
             blit_centered(surf, sp.number(o.combo_number), pos, alpha)
         if t < o.time and (hit_time is None or t < hit_time):
             f = (o.time - t) / bm.preempt
-            size = sp.r * 2 * (1 + 3 * f) * 1.05
-            img = pygame.transform.smoothscale(sp.approach[o.colour_index], (int(size), int(size)))
-            blit_centered(surf, img, pos, min(255, alpha * 0.9))
+            radius = int(sp.r * (1 + 3 * f) * 1.05)
+            col = bm.colours[o.colour_index] + (int(min(255, alpha * 0.9)),)
+            x, y = int(pos[0]), int(pos[1])
+            for k in range(max(2, int(sp.r * 0.09))):
+                pygame.gfxdraw.aacircle(surf, x, y, radius - k, col)
 
     def draw_spinner(self, surf, t, o, r):
         tx = self.app.text
@@ -522,11 +594,14 @@ class StdPlayScene(BasePlayScene):
             a *= max(0.0, 1 - (t - o.end_time) / 300)
         if a <= 0:
             return
-        c = view.pf((256, 192))
-        c = (int(c[0]), int(c[1]))
+        sc = view.pf((256, 192))
         big = int(view.s(250))
-        ov = self.overlay
+        half = big + int(view.s(24))
+        ov = getattr(self, "spin_ov", None)
+        if ov is None or ov.get_width() != half * 2:
+            ov = self.spin_ov = pygame.Surface((half * 2, half * 2), pygame.SRCALPHA)
         ov.fill((0, 0, 0, 0))
+        c = (half, half)
         pygame.draw.circle(ov, (20, 20, 40, int(170 * a)), c, big)
         pygame.draw.circle(ov, (255, 255, 255, int(220 * a)), c, big, max(2, int(view.s(4))))
         start, stop, omega, required = r.spin
@@ -549,8 +624,8 @@ class StdPlayScene(BasePlayScene):
         if prog > 0:
             pygame.draw.arc(ov, (120, 255, 150, int(255 * a)), arc, math.pi / 2,
                             math.pi / 2 + 2 * math.pi * prog, max(2, int(view.s(8))))
-        surf.blit(ov, (0, 0))
-        ov.fill((0, 0, 0, 0))
+        surf.blit(ov, (int(sc[0]) - half, int(sc[1]) - half))
+        c = sc
         rpm = omega * 60000 / (2 * math.pi) if start <= t <= stop else 0
         label = "ГОТОВО!" if prog >= 1 else "КРУТИ!"
         tx.draw(surf, label, 52, WHITE, (c[0], c[1] - view.s(40)), "center", 255 * a,
@@ -591,7 +666,7 @@ class StdPlayScene(BasePlayScene):
             n = 26
             for k in range(n, 0, -1):
                 p = view.pf(cur.at(t - k * 5 * self.bm.rate))
-                blit_centered(surf, sp.trail, p, 140 * (1 - k / n) ** 1.5, 1 - 0.5 * k / n)
+                blit_centered(surf, sp.trail[k - 1], p, 140 * (1 - k / n) ** 1.5)
         blit_centered(surf, sp.cursor, view.pf(cur.at(t)))
 
     def draw_keys(self, surf, t):
