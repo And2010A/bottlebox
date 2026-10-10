@@ -222,10 +222,11 @@ def guess_white_bottom(grid, default):
     """Вгадує орієнтацію дошки за пішаками: білі пішаки майже завжди нижче за чорні."""
     white = [r for r in range(8) for c in range(8) if grid[r][c] == "P"]
     black = [r for r in range(8) for c in range(8) if grid[r][c] == "p"]
-    if not white or not black:
+    # В ендшпілі прохідні пішаки можуть «розминутися», тож рішення приймаємо лише за явної картини.
+    if min(len(white), len(black)) < 3:
         return default
     diff = np.mean(white) - np.mean(black)  # >0: білі пішаки нижче на екрані
-    if abs(diff) < 1.0:
+    if abs(diff) < 2.0:
         return default
     return bool(diff > 0)
 
