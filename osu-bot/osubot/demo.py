@@ -64,8 +64,8 @@ Mode: 0
 StackLeniency: 0.7
 
 [Metadata]
-Title:Claude Bot Demo
-TitleUnicode:Claude Bot Demo
+Title:Claude Demo
+TitleUnicode:Claude Demo
 Artist:Generator
 ArtistUnicode:Generator
 Creator:Claude

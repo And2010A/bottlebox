@@ -280,11 +280,8 @@ class MenuScene:
                                max(1, int(view.s(2))))
         bob = math.sin(t * 2.2) * view.s(3)
         surf.blit(self.avatar, (view.p(40, 22)[0], view.p(40, 22)[1] + bob))
-        r = tx.draw(surf, "osu! BOT", 72, ACCENT, (134, 20), weight="black")
-        tx.draw(surf, "by Claude", 40, WHITE, (r.right + view.s(16), r.bottom - view.s(10)),
-                "bottomleft", screen=True)
-        tx.draw(surf, "бот сам проходить будь-яку карту — ти лише вибираєш файл", 26, MUTED,
-                (134, 98))
+        tx.draw(surf, "osu!", 72, ACCENT, (134, 10), weight="black")
+        tx.draw(surf, "by Claude", 30, WHITE, (137, 80))
         mouse = view.to_logical(pygame.mouse.get_pos())
 
         if a.error:
@@ -337,7 +334,7 @@ class MenuScene:
             notes.append("у карті є відео-фон" + ("" if s["video"] else " (вимкнено)"))
         if notes:
             tx.draw(surf, "  •  ".join(notes), 22, MUTED, (660, 632))
-        tx.draw(surf, "Esc — меню/вихід   R — заново   P — пауза   Space — пропуск   F11 — повний екран",
+        tx.draw(surf, "У грі: Esc / P — пауза   R — заново   Space — пропуск вступу   F11 — повний екран",
                 22, MUTED, (640, 706), "center")
 
     def draw_stats(self, surf, multi):

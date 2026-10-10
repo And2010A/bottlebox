@@ -10,8 +10,8 @@ import pygame.gfxdraw
 
 from .beatmap import as_file
 from .sim import FOLLOW_SCALE
-from .ui import (ACCENT, GRADE_COLOURS, MUTED, WHITE, blit_centered, cover, load_image, make_icon,
-                 mix, rect, view)
+from .ui import (ACCENT, GRADE_COLOURS, MUTED, PANEL_HI, WHITE, Button, blit_centered, cover,
+                 load_image, mix, rect, view)
 
 JUDGE_COLOURS = {300: (110, 190, 255), 100: (120, 230, 100), 50: (255, 190, 70), 0: (255, 60, 60)}
 
@@ -44,7 +44,6 @@ class BasePlayScene:
             else:
                 self.video_note = "файл відео не знайдено"
         self.dim_now = 1.0
-        self.avatar = None
         self.music = None
         self.music_sound = None
         self.music_array = None
@@ -76,7 +75,6 @@ class BasePlayScene:
         self.dim_surf = pygame.Surface(size)
         self.dim_surf.fill((0, 0, 0))
         self.overlay = pygame.Surface(size, pygame.SRCALPHA)
-        self.avatar = make_icon(max(16, int(view.s(30))))
         self.build_sprites()
         if self.video is not None and not self.finished:
             self.video.resize(size, self.now())
@@ -142,6 +140,7 @@ class BasePlayScene:
             pass
 
     def stop(self):
+        self.take_mouse(False)
         self._stop_music()
         if self.video is not None:
             self.video.stop()
@@ -174,12 +173,14 @@ class BasePlayScene:
             if self.paused:
                 self.base_real += time.perf_counter() - self.pause_real
                 self.paused = False
+                self.take_mouse(True)
                 pygame.mixer.music.unpause()
                 if self.channel:
                     self.channel.unpause()
             else:
                 self.pause_real = time.perf_counter()
                 self.paused = True
+                self.take_mouse(False)
                 pygame.mixer.music.pause()
                 if self.channel:
                     self.channel.pause()
@@ -187,17 +188,67 @@ class BasePlayScene:
             pass
 
     # --- events -----------------------------------------------------------------
+    def pause_buttons(self):
+        if not hasattr(self, "_pause_buttons"):
+            self._pause_buttons = [
+                Button((490, 300, 300, 64), "Продовжити", self.toggle_pause, colour=(70, 190, 120),
+                       size=34),
+                Button((490, 380, 300, 64), "Заново (R)", self.app.start_play, colour=ACCENT, size=34),
+                Button((490, 460, 300, 64), "Вийти в меню (Q)", self.app.go_menu, colour=PANEL_HI,
+                       size=34),
+            ]
+        return self._pause_buttons
+
     def handle(self, ev):
+        if ev.type == getattr(pygame, "WINDOWFOCUSLOST", -1) or \
+                (ev.type == pygame.ACTIVEEVENT and getattr(ev, "gain", 1) == 0
+                 and getattr(ev, "state", 0) & 2):
+            if not self.paused:
+                self.toggle_pause()  # like osu!: lose focus -> pause
+            return
+        if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1 and self.paused:
+            pos = view.to_logical(ev.pos)
+            for b in self.pause_buttons():
+                if b.click(pos):
+                    return
+            return
         if ev.type != pygame.KEYDOWN:
             return
-        if ev.key == pygame.K_ESCAPE:
-            self.app.go_menu()
+        if ev.key in (pygame.K_ESCAPE, pygame.K_p):
+            self.toggle_pause()
         elif ev.key == pygame.K_r:
             self.app.start_play()
-        elif ev.key == pygame.K_p:
-            self.toggle_pause()
+        elif ev.key == pygame.K_q and self.paused:
+            self.app.go_menu()
         elif ev.key == pygame.K_SPACE:
-            self.do_skip()
+            if self.paused:
+                self.toggle_pause()
+            else:
+                self.do_skip()
+
+    # --- the bot owns the mouse while playing -----------------------------------
+    def take_mouse(self, on):
+        try:
+            pygame.mouse.set_visible(not on)
+            pygame.event.set_grab(on)
+        except pygame.error:
+            pass
+        self.mouse_taken = on
+
+    def bot_pointer(self, t):
+        """Screen position of the bot's cursor (where the real mouse is put)."""
+        return None
+
+    def drive_mouse(self, t):
+        if not getattr(self, "mouse_taken", False):
+            self.take_mouse(True)
+        p = self.bot_pointer(t)
+        if p is None or not pygame.key.get_focused():
+            return
+        x = min(max(int(p[0]), 0), view.win_w - 1)
+        y = min(max(int(p[1]), 0), view.win_h - 1)
+        if pygame.mouse.get_pos() != (x, y):
+            pygame.mouse.set_pos(x, y)
 
     def do_skip(self):
         if self.skip_to is not None and self.now() < self.skip_to:
@@ -234,6 +285,7 @@ class BasePlayScene:
         if self.finished:
             return
         self.finished = True
+        self.take_mouse(False)
         self._stop_music(800)
         if self.video is not None:
             if self.video.current is not None:
@@ -253,6 +305,8 @@ class BasePlayScene:
         t = self.now()
         if self.play.failed and t > self.play.fail_time:
             t = self.play.fail_time
+        if not self.paused and not self.finished and not self.failed_real:
+            self.drive_mouse(t)  # the real mouse sits exactly under the drawn bot cursor
         self.draw_background(surf, t)
         self.draw_playfield(surf, t)
         self.draw_hud(surf, t)
@@ -264,9 +318,13 @@ class BasePlayScene:
             tx.draw(surf, "ПРОВАЛ", int(80 + 40 * k), (255, 90, 90), (640, 360), "center",
                     weight="black")
         if self.paused:
-            self.overlay.fill((0, 0, 0, 150))
+            self.overlay.fill((0, 0, 0, 170))
             surf.blit(self.overlay, (0, 0))
-            tx.draw(surf, "ПАУЗА  (P — продовжити)", 56, WHITE, (640, 360), "center")
+            tx.draw(surf, "ПАУЗА", 80, WHITE, (640, 220), "center", weight="black")
+            tx.draw(surf, "мишка знову твоя — бот відпустив курсор", 24, MUTED, (640, 270), "center")
+            mouse = view.to_logical(pygame.mouse.get_pos())
+            for b in self.pause_buttons():
+                b.draw(surf, tx, mouse)
 
     def draw_background(self, surf, t):
         dim = self.app.settings["dim"] / 100
@@ -289,13 +347,6 @@ class BasePlayScene:
     def draw_playfield(self, surf, t):
         pass
 
-    def mode_label(self):
-        play = self.play
-        mode = f"Ціль: {play.target}" if play.mode == "grade" else f"Скіл {int(play.skill)}/10"
-        mods = " +" + "".join(sorted(self.bm.mods)) if self.bm.mods else ""
-        ruleset = "osu!catch" if play.ruleset == "catch" else "osu!"
-        return f"BOT Claude  •  {ruleset}  •  {mode}{mods}"
-
     def draw_hud(self, surf, t):
         tx = self.app.text
         play = self.play
@@ -308,8 +359,6 @@ class BasePlayScene:
         prog = min(1.0, max(0.0, (t - first) / max(1, last - first)))
         rect(surf, (60, 60, 80), (20, 40, 420, 5), radius=3)
         rect(surf, (200, 200, 230), (20, 40, max(1, 420 * prog), 5), radius=3)
-        surf.blit(self.avatar, view.p(20, 52))
-        tx.draw(surf, self.mode_label(), 26, ACCENT, (58, 56))
         tx.draw(surf, f"{snap.score:08d}", 58, WHITE, (1260, 6), "topright", weight="black")
         acc = play.acc_of(snap.counts)
         tx.draw(surf, f"{acc * 100:.2f}%", 36, WHITE, (1260, 58), "topright")
@@ -415,6 +464,9 @@ class StdPlayScene(BasePlayScene):
         self.vis_ptr = 0
         self.build_ptr = 0
         self.on_resize()
+
+    def bot_pointer(self, t):
+        return view.pf(self.play.cursor.at(t))
 
     def build_sprites(self):
         self.sprites = Sprites(self.bm, self.app.text)

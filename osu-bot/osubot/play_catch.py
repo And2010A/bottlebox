@@ -110,6 +110,10 @@ class CatchPlayScene(BasePlayScene):
     def fall_y(self, o, t):
         return PLATE_Y - (o.time - t) / self.bm.preempt * (PLATE_Y - Y_TOP)
 
+    def bot_pointer(self, t):
+        x, _ = self.play.catcher_at(t)
+        return view.pf((x, PLATE_Y + 20))
+
     def catcher_screen(self, x):
         p = view.pf((x, PLATE_Y))
         return p

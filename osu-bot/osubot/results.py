@@ -69,7 +69,7 @@ class ResultScene:
         mode = f"ціль — ранг {play.target}" if play.mode == "grade" else \
             f"скіл {int(play.skill)}/10 ({SKILL_TEXT[int(play.skill) - 1]})"
         ruleset = "osu!catch" if play.ruleset == "catch" else "osu!"
-        tx.draw(surf, f"Бот Claude • {ruleset} • {mode} • моди: {mods}", 26, MUTED, (40, 108))
+        tx.draw(surf, f"Claude • {ruleset} • {mode} • моди: {mods}", 26, MUTED, (40, 108))
 
         rect(surf, (16, 12, 28), (40, 150, 640, 440), radius=16)
         for r, (name, v, col) in enumerate(self.rows()):

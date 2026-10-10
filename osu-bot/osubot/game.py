@@ -25,7 +25,7 @@ class App:
             pass
         pygame.init()
         self.audio_ok = pygame.mixer.get_init() is not None
-        pygame.display.set_caption("osu! bot by Claude")
+        pygame.display.set_caption("osu! by Claude")
         pygame.display.set_icon(make_icon(64))
         try:
             dw, dh = pygame.display.get_desktop_sizes()[0]
@@ -261,7 +261,7 @@ def main():
             from tkinter import messagebox
             root = tk.Tk()
             root.withdraw()
-            messagebox.showerror("osu! bot", f"Програма впала з помилкою.\nДеталі: {log}")
+            messagebox.showerror("osu! by Claude", f"Програма впала з помилкою.\nДеталі: {log}")
             root.destroy()
         except Exception:
             pass
