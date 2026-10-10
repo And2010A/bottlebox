@@ -88,11 +88,11 @@ void Sensors::prepare(GJBaseGameLayer* layer) {
     });
 }
 
-void Sensors::observe(PlayerObject* player, bool holding, bool dual, float* out) const {
+void Sensors::observe(PlayerObject* player, bool dual, float* out, float lookahead) const {
     std::fill(out, out + kInputs, 0.f);
     if (!player) return;
 
-    float px = player->m_position.x;
+    float px = player->m_position.x + lookahead;
     float py = player->m_position.y;
     bool flipped = player->m_isUpsideDown;
 
@@ -135,7 +135,7 @@ void Sensors::observe(PlayerObject* player, bool holding, bool dual, float* out)
     float vy = (float)player->m_yVelocity / 15.f;
     extra[0] = std::clamp(flipped ? -vy : vy, -2.f, 2.f);
     extra[1] = player->m_isOnGround ? 1.f : 0.f;
-    extra[2] = holding ? 1.f : 0.f;
+    extra[2] = flipped ? 1.f : 0.f;
     extra[3] = player->m_playerSpeed;
     extra[4] = player->m_vehicleSize < 1.f ? 1.f : 0.f;
     extra[5] = dual ? 1.f : 0.f;

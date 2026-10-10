@@ -1,13 +1,23 @@
 #include "Bot.hpp"
 
 #include <Geode/Geode.hpp>
+#include <Geode/ui/Notification.hpp>
+#include <Geode/utils/file.hpp>
+#include <fmt/chrono.h>
 
 #include <algorithm>
+#include <cctype>
+#include <chrono>
+#include <fstream>
 
 using namespace geode::prelude;
 using namespace aibot;
 
 namespace {
+    // A death this close after a moment means that moment was probably a
+    // mistake, so it is not learned from.
+    constexpr int kUnsafeTicks = 120;
+
     // Stable across runs and platforms, unlike std::hash.
     uint64_t fnv1a(std::string_view text) {
         uint64_t hash = 0xcbf29ce484222325ull;
@@ -36,8 +46,48 @@ namespace {
         return key;
     }
 
-    std::filesystem::path brainPath() {
-        return Mod::get()->getSaveDir() / "brain.bin";
+    std::filesystem::path saveDir() {
+        return Mod::get()->getSaveDir();
+    }
+
+    std::filesystem::path macroDir() {
+        return saveDir() / "macros";
+    }
+
+    // Keeps file names plain ASCII so every system can open them.
+    std::string safeFileName(std::string const& name) {
+        std::string out;
+        for (unsigned char c : name) {
+            if (c < 0x80 && (std::isalnum(c) || c == ' ' || c == '-' || c == '_')) out += (char)c;
+            else if (c >= 0x80 || c == '.' || c == '/' || c == '\\') out += '_';
+        }
+        if (out.size() > 40) out.resize(40);
+        while (!out.empty() && out.back() == ' ') out.pop_back();
+        return out.empty() ? "level" : out;
+    }
+
+    char const* modeLabel(LearnMode mode) {
+        switch (mode) {
+            case LearnMode::Memory: return "Memory";
+            case LearnMode::Human: return "Human";
+            case LearnMode::Macro: return "Macro";
+        }
+        return "?";
+    }
+
+    bool clicksMatterInAir(int mode) {
+        // A cube, ball or spider in mid-air ignores clicks unless an orb is near.
+        return mode != Cube && mode != Ball && mode != Spider;
+    }
+
+    bool orbInView(Sample const& sample) {
+        for (int col = 0; col < kGridCols; col++) {
+            for (int row = 0; row < kGridRows; row++) {
+                int i = gridIndex(OrbChannel, col, row);
+                if ((sample.grid[i / 8] >> (i % 8)) & 1) return true;
+            }
+        }
+        return false;
     }
 }
 
@@ -53,19 +103,18 @@ Bot::Bot() : m_rng(std::random_device{}()) {
 void Bot::reloadConfig() {
     auto mod = Mod::get();
     m_config.enabled = mod->getSettingValue<bool>("enabled");
-    m_config.mode = mod->getSettingValue<std::string>("mode") == "Human" ? LearnMode::Human : LearnMode::Memory;
+    auto mode = mod->getSettingValue<std::string>("mode");
+    m_config.mode = mode == "Human" ? LearnMode::Human : mode == "Macro" ? LearnMode::Macro : LearnMode::Memory;
     m_config.learning = mod->getSettingValue<bool>("learning");
     m_config.speed = (float)mod->getSettingValue<double>("speed");
     m_config.reactionMs = (int)mod->getSettingValue<int64_t>("reaction-ms");
     m_config.jitterMs = (int)mod->getSettingValue<int64_t>("jitter-ms");
     m_config.lapsePercent = (float)mod->getSettingValue<double>("lapse-percent");
-    m_config.population = (int)mod->getSettingValue<int64_t>("population");
-    m_config.mutationRate = (float)mod->getSettingValue<double>("mutation-rate");
     m_config.showHud = mod->getSettingValue<bool>("show-hud");
 }
 
 std::filesystem::path Bot::memoryPath() const {
-    return Mod::get()->getSaveDir() / "memory" / (m_levelKey + ".bin");
+    return saveDir() / "memory" / (m_levelKey + ".bin");
 }
 
 bool Bot::canControl(PlayLayer* layer) const {
@@ -77,6 +126,7 @@ bool Bot::isPlaying(PlayLayer* layer) const {
 }
 
 void Bot::detach() {
+    this->pollTraining();
     this->saveMemory();
     this->saveBrain();
     m_layer = nullptr;
@@ -100,6 +150,7 @@ void Bot::onLevelEnter(PlayLayer* layer) {
     this->reloadConfig();
 
     if (!layer) return;
+    this->ensureBrain();
 
     m_levelName = layer->m_level ? std::string(layer->m_level->m_levelName) : std::string();
 
@@ -122,12 +173,18 @@ void Bot::onLevelExit(PlayLayer* layer) {
 void Bot::onAttemptStart(PlayLayer* layer) {
     if (!layer || layer != m_layer) return;
     this->reloadConfig();
+    this->pollTraining();
 
     auto key = levelKeyFor(layer);
     if (key != m_levelKey) {
         this->saveMemory();
         m_levelKey = key;
         m_memory.load(this->memoryPath());
+        m_learnedUpTo = 0;
+        m_humanBest = 0.f;
+        m_stuckAttempts = 0;
+        m_levelAttempts = 0;
+        m_beatenThisVisit = false;
     }
 
     m_attemptEnded = false;
@@ -135,21 +192,46 @@ void Bot::onAttemptStart(PlayLayer* layer) {
     m_attemptPercent = 0.f;
     m_pressed[0] = m_pressed[1] = false;
     m_forceSync = true;
+    m_runSamples[0].clear();
+    m_runSamples[1].clear();
+    m_runInputs.clear();
+    m_lastX[0] = m_lastX[1] = 0.f;
+    m_dx[0] = m_dx[1] = 0.f;
 
     m_attemptPrepared = this->canControl(layer);
     if (m_attemptPrepared) m_usedThisLevel = true;
     // Once the bot has played here, nothing until leaving the level counts
     // as the player's own progress (like playing from a start position).
     if (m_usedThisLevel) layer->m_isTestMode = true;
+
     if (m_attemptPrepared) {
-        if (m_config.mode == LearnMode::Memory) {
-            m_memory.beginAttempt(m_config.learning, m_rng);
-        }
-        else {
-            this->ensureBrain();
-            m_hands.reset();
-            m_sensors.prepare(layer);
-            m_humanAttempts++;
+        m_levelAttempts++;
+        switch (m_config.mode) {
+            case LearnMode::Memory: {
+                this->ensureBrain();
+                m_sensors.prepare(layer);
+                m_memory.beginAttempt(m_config.learning, m_rng);
+                break;
+            }
+            case LearnMode::Human: {
+                this->ensureBrain();
+                m_sensors.prepare(layer);
+                m_hands.reset();
+                m_humanAttempts++;
+                // Stuck at the same spot for a while: try bolder ideas, like a
+                // player who starts experimenting.
+                float wild = (!m_config.learning || m_humanBest >= 100.f)
+                    ? 0.f : std::min(0.3f, m_stuckAttempts / 100.f);
+                std::uniform_real_distribution<float> spread(-1.f, 1.f);
+                m_threshold = m_config.learning ? 0.5f + (0.08f + 0.15f * wild) * spread(m_rng) : 0.5f;
+                m_deviationRate = m_config.learning ? (1.f + 4.f * wild) / 600.f : 0.f;
+                m_deviateUntil[0] = m_deviateUntil[1] = -1;
+                break;
+            }
+            case LearnMode::Macro: {
+                if (m_macroKey != m_levelKey) this->loadMacro();
+                break;
+            }
         }
     }
 
@@ -165,6 +247,13 @@ void Bot::press(PlayLayer* layer, int player, bool down) {
     m_pressed[player] = down;
 }
 
+void Bot::record(int tick, int player, float const* inputs, int mode, bool hold) {
+    auto& run = m_runSamples[player];
+    auto sample = makeSample(inputs, mode, hold);
+    while ((int)run.size() < tick) run.push_back(sample);
+    if ((int)run.size() == tick) run.push_back(sample);
+}
+
 void Bot::onTick(PlayLayer* layer) {
     if (!layer || layer != m_layer) return;
 
@@ -178,6 +267,7 @@ void Bot::onTick(PlayLayer* layer) {
         this->onAttemptStart(layer);
     }
     m_lastTick = tick;
+    if (tick % 60 == 0) this->pollTraining();
 
     if (!m_attemptPrepared || m_attemptEnded || !m_config.enabled) {
         // Turned off mid-attempt: let go of the button and hand control back.
@@ -196,14 +286,46 @@ void Bot::onTick(PlayLayer* layer) {
 
     bool dual = layer->m_gameState.m_isDualMode && p2;
     bool twoPlayers = dual && layer->m_levelSettings && layer->m_levelSettings->m_twoPlayerMode;
+    m_twoPlayers = twoPlayers;
 
-    uint8_t want;
-    if (m_config.mode == LearnMode::Memory) {
-        want = m_memory.decide(tick, modeOf(p1), dual ? modeOf(p2) : (int)Cube, twoPlayers, m_rng);
+    // Horizontal speed per tick, used to look ahead by the reaction time.
+    PlayerObject* players[2] = {p1, p2};
+    for (int p = 0; p < (dual ? 2 : 1); p++) {
+        float x = players[p]->m_position.x;
+        float dx = x - m_lastX[p];
+        if (dx > 0.f && dx < 30.f) m_dx[p] = dx;
+        m_lastX[p] = x;
+    }
+
+    uint8_t want = 0;
+    if (m_config.mode == LearnMode::Macro) {
+        want = tick < (int)m_macro.size() ? m_macro[tick] : 0;
     }
     else {
-        want = this->decideHuman(layer, tick, dual, twoPlayers);
+        if (tick % kTicksPerSecond == 0) m_sensors.prepare(layer);
+        float inputs1[kInputs], inputs2[kInputs];
+        int mode1 = modeOf(p1), mode2 = dual ? modeOf(p2) : (int)Cube;
+        m_sensors.observe(p1, dual, inputs1);
+        if (dual) m_sensors.observe(p2, dual, inputs2);
+
+        if (m_config.mode == LearnMode::Memory) {
+            float guide[2] = {m_skill.predict(mode1, inputs1), dual ? m_skill.predict(mode2, inputs2) : 0.f};
+            // In a normal dual one button moves both icons: listen to both.
+            if (dual && !twoPlayers) guide[0] = (guide[0] + guide[1]) * 0.5f;
+            want = m_memory.decide(tick, mode1, mode2, twoPlayers, guide, m_rng);
+        }
+        else {
+            want = this->decideHuman(layer, tick, dual, twoPlayers);
+        }
+
+        this->record(tick, 0, inputs1, mode1, want & 1);
+        if (twoPlayers) this->record(tick, 1, inputs2, mode2, (want & 2) != 0);
     }
+
+    while ((int)m_runInputs.size() < tick) {
+        m_runInputs.push_back(m_runInputs.empty() ? 0 : m_runInputs.back());
+    }
+    if ((int)m_runInputs.size() == tick) m_runInputs.push_back(want);
 
     this->press(layer, 0, want & 1);
     if (twoPlayers) this->press(layer, 1, (want & 2) != 0);
@@ -214,32 +336,42 @@ void Bot::onTick(PlayLayer* layer) {
 }
 
 uint8_t Bot::decideHuman(PlayLayer* layer, int tick, bool dual, bool twoPlayers) {
-    if (tick % kTicksPerSecond == 0) m_sensors.prepare(layer);
-
-    auto const& genome = m_config.learning ? m_population.current() : m_population.champion();
     int delay = m_config.reactionMs * kTicksPerSecond / 1000;
     int jitter = m_config.jitterMs * kTicksPerSecond / 1000;
     float lapse = m_config.lapsePercent / 100.f;
 
+    // A person reacts to where they will be when the click lands.
     float inputs[kInputs];
     auto p1 = layer->m_player1;
-    m_sensors.observe(p1, m_hands.wanted(0), dual, inputs);
-    float out1 = evaluate(genome, modeOf(p1), inputs);
+    m_sensors.observe(p1, dual, inputs, m_dx[0] * delay);
+    float out1 = m_skill.predict(modeOf(p1), inputs);
     float out2 = out1;
     if (dual) {
         auto p2 = layer->m_player2;
-        m_sensors.observe(p2, m_hands.wanted(twoPlayers ? 1 : 0), dual, inputs);
-        out2 = evaluate(genome, modeOf(p2), inputs);
+        m_sensors.observe(p2, dual, inputs, m_dx[1] * delay);
+        out2 = m_skill.predict(modeOf(p2), inputs);
     }
 
+    auto choose = [&](int player, float out) {
+        bool want = out > m_threshold;
+        if (tick < m_deviateUntil[player]) {
+            want = !want;
+        }
+        else if (m_deviationRate > 0.f && std::uniform_real_distribution<float>(0.f, 1.f)(m_rng) < m_deviationRate) {
+            // Trying something different here.
+            m_deviateUntil[player] = tick + std::uniform_int_distribution<int>(2, 40)(m_rng);
+            want = !want;
+        }
+        return want;
+    };
+
     if (twoPlayers) {
-        m_hands.want(0, out1 > 0.5f, tick, delay, jitter, lapse, m_rng);
-        m_hands.want(1, out2 > 0.5f, tick, delay, jitter, lapse, m_rng);
+        m_hands.want(0, choose(0, out1), tick, delay, jitter, lapse, m_rng);
+        m_hands.want(1, choose(1, out2), tick, delay, jitter, lapse, m_rng);
     }
     else {
-        // One button moves both icons in a normal dual: listen to both.
         float out = dual ? (out1 + out2) * 0.5f : out1;
-        m_hands.want(0, out > 0.5f, tick, delay, jitter, lapse, m_rng);
+        m_hands.want(0, choose(0, out), tick, delay, jitter, lapse, m_rng);
     }
 
     uint8_t result = m_hands.apply(0, tick) ? 1 : 0;
@@ -247,30 +379,127 @@ uint8_t Bot::decideHuman(PlayLayer* layer, int tick, bool dual, bool twoPlayers)
     return result;
 }
 
+int Bot::learnFromRun(int from, int to, int every) {
+    if (!m_brainLoaded) return 0;
+    std::vector<Sample> batch;
+    int kept = 0;
+    for (int p = 0; p < (m_twoPlayers ? 2 : 1); p++) {
+        auto const& run = m_runSamples[p];
+        int end = std::min(to, (int)run.size());
+        uint8_t bit = (uint8_t)(1 << p);
+        for (int t = std::max(from, 0); t < end; t++) {
+            auto const& sample = run[t];
+            bool onGround = sample.extra[1] > 0.5f;
+            if (!onGround && !clicksMatterInAir(sample.mode) && !orbInView(sample)) continue;
+
+            // The moments around a press or release teach the most.
+            bool nearSwitch = false;
+            for (int d = -6; d <= 6 && !nearSwitch; d++) {
+                int a = t + d;
+                if (a >= 1 && a < (int)m_runInputs.size() && ((m_runInputs[a] ^ m_runInputs[a - 1]) & bit)) {
+                    nearSwitch = true;
+                }
+            }
+            if (!nearSwitch && t % 3 != 0) continue;
+            if (kept++ % every != 0) continue;
+            batch.push_back(sample);
+        }
+    }
+    if (!batch.empty()) m_skill.addExperience(batch, m_rng);
+    return (int)batch.size();
+}
+
+void Bot::scheduleTraining(int steps) {
+    if (!m_brainLoaded || steps <= 0 || m_skill.experienceSize() == 0) return;
+    if (m_training.valid()) {
+        m_pendingTraining = std::min(m_pendingTraining + steps, 20000);
+        return;
+    }
+    // Training runs on a copy in the background, so the game never freezes.
+    unsigned seed = m_rng();
+    m_training = std::async(std::launch::async, [copy = m_skill, seed, steps]() mutable {
+        std::mt19937 rng(seed);
+        copy.train(steps, rng);
+        return std::move(copy);
+    });
+}
+
+void Bot::pollTraining() {
+    if (!m_training.valid()) return;
+    if (m_training.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+    m_skill.adoptTraining(m_training.get());
+    if (m_pendingTraining > 0) {
+        int steps = std::min(m_pendingTraining, 8000);
+        m_pendingTraining = 0;
+        this->scheduleTraining(steps);
+    }
+}
+
 void Bot::onDeath(PlayLayer* layer) {
     if (!layer || layer != m_layer || !m_attemptPrepared || m_attemptEnded) return;
     m_attemptEnded = true;
     m_pressed[0] = m_pressed[1] = false;
+    this->pollTraining();
 
     float percent = layer->getCurrentPercent();
-    if (m_config.mode == LearnMode::Memory) {
-        if (m_memory.onDeath(m_lastTick, percent)) {
-            m_lastEvent = fmt::format("New best: {:.1f}%", m_memory.bestPercent());
-            this->saveMemory();
-        }
-        else if (m_memory.attempts() % 25 == 0) {
-            this->saveMemory();
-        }
+    int unsafeFrom = m_lastTick - kUnsafeTicks;
+
+    if (m_levelAttempts == 1 && m_config.mode != LearnMode::Macro) {
+        m_lastEvent = fmt::format("First try: {:.1f}% (brain lv {})", percent, m_skill.brainLevel());
+        this->logProgress("first try", percent);
     }
-    else {
-        if (percent > m_humanBestPercent) {
-            m_humanBestPercent = percent;
-            m_lastEvent = fmt::format("New best: {:.1f}%", percent);
+
+    switch (m_config.mode) {
+        case LearnMode::Memory: {
+            if (m_memory.onDeath(m_lastTick, percent)) {
+                m_lastEvent = fmt::format("New best: {:.1f}%", m_memory.bestPercent());
+                if (m_config.learning && unsafeFrom > m_learnedUpTo) {
+                    int added = this->learnFromRun(m_learnedUpTo, unsafeFrom, 1);
+                    m_learnedUpTo = unsafeFrom;
+                    this->scheduleTraining(std::min(4000, 500 + 3 * added));
+                }
+                this->saveMemory();
+                this->logProgress("new best", percent);
+            }
+            else if (m_memory.attempts() % 25 == 0) {
+                this->saveMemory();
+            }
+            break;
         }
-        if (m_config.learning &&
-            m_population.report(percent, m_config.population, m_config.mutationRate, m_rng)) {
-            m_lastEvent = fmt::format("Generation {} born", m_population.generation());
-            this->saveBrain();
+        case LearnMode::Human: {
+            if (!m_config.learning) {
+                m_humanBest = std::max(m_humanBest, percent);
+                break;
+            }
+            if (percent > m_humanBest) {
+                m_humanBest = percent;
+                m_stuckAttempts = 0;
+                m_lastEvent = fmt::format("New best: {:.1f}%", percent);
+                if (unsafeFrom > m_learnedUpTo) {
+                    int added = this->learnFromRun(m_learnedUpTo, unsafeFrom, 1);
+                    m_learnedUpTo = unsafeFrom;
+                    this->scheduleTraining(std::min(3000, 500 + 3 * added));
+                }
+                this->logProgress("new best", percent);
+            }
+            else {
+                m_stuckAttempts++;
+                if (percent >= 0.7f * m_humanBest && unsafeFrom > 0) {
+                    // A good run: practice what went right.
+                    this->learnFromRun(0, unsafeFrom, 4);
+                    this->scheduleTraining(200);
+                }
+                else {
+                    this->scheduleTraining(100);
+                }
+            }
+            break;
+        }
+        case LearnMode::Macro: {
+            m_lastEvent = m_macro.empty()
+                ? std::string("No macro for this level yet")
+                : fmt::format("Macro lost sync at {:.1f}%", percent);
+            break;
         }
     }
     this->updateHud(layer);
@@ -280,33 +509,185 @@ void Bot::onComplete(PlayLayer* layer) {
     if (!layer || layer != m_layer || !m_attemptPrepared || m_attemptEnded) return;
     m_attemptEnded = true;
     m_pressed[0] = m_pressed[1] = false;
+    this->pollTraining();
 
-    if (m_config.mode == LearnMode::Memory) {
-        m_memory.onComplete(m_lastTick);
-        this->saveMemory();
-    }
-    else {
-        m_humanBestPercent = 100.f;
-        if (m_config.learning) {
-            // Beating the level is worth more than any death.
-            m_population.report(110.f, m_config.population, m_config.mutationRate, m_rng);
+    switch (m_config.mode) {
+        case LearnMode::Memory: {
+            m_memory.onComplete(m_lastTick);
+            this->saveMemory();
+            break;
         }
-        this->saveBrain();
+        case LearnMode::Human: {
+            m_humanBest = 100.f;
+            m_stuckAttempts = 0;
+            break;
+        }
+        case LearnMode::Macro: {
+            m_lastEvent = "Macro beat the level!";
+            this->updateHud(layer);
+            return;
+        }
     }
-    m_lastEvent = "LEVEL COMPLETE!";
+
+    if (m_config.learning) {
+        int added = this->learnFromRun(m_learnedUpTo, m_lastTick + 1, 1);
+        m_learnedUpTo = m_lastTick + 1;
+        this->scheduleTraining(std::min(8000, 2000 + 3 * added));
+    }
+    if (!m_beatenThisVisit) this->onFirstWin(layer);
     this->updateHud(layer);
+}
+
+void Bot::onFirstWin(PlayLayer* layer) {
+    m_beatenThisVisit = true;
+    bool newLevel = !m_skill.hasBeaten(m_levelKey);
+    if (m_config.learning) m_skill.markLevelBeaten(m_levelKey);
+    this->saveMacro(layer);
+    this->saveBrain();
+    this->logProgress("beaten", 100.f);
+
+    m_lastEvent = fmt::format("LEVEL BEATEN in {} attempts! Macro saved", m_levelAttempts);
+    Notification::create(
+        fmt::format(
+            "{} in {} attempts! Brain lv {}",
+            newLevel ? "New level beaten" : "Beaten again",
+            m_levelAttempts, m_skill.brainLevel()
+        ),
+        NotificationIcon::Success
+    )->show();
+}
+
+void Bot::saveMacro(PlayLayer* layer) {
+    if (m_runInputs.empty()) return;
+    std::error_code ec;
+    std::filesystem::create_directories(macroDir(), ec);
+
+    // Keep one macro per level: drop the older file.
+    auto suffix = fmt::format("[{}].json", m_levelKey);
+    for (auto const& entry : std::filesystem::directory_iterator(macroDir(), ec)) {
+        try {
+            auto name = entry.path().filename().string();
+            if (name.ends_with(suffix)) std::filesystem::remove(entry.path(), ec);
+        }
+        catch (...) {}
+    }
+
+    auto root = matjson::Value::object();
+    root["format"] = "ai-bot-macro";
+    root["version"] = 1;
+    auto level = matjson::Value::object();
+    level["id"] = layer->m_level ? layer->m_level->m_levelID.value() : 0;
+    level["name"] = m_levelName;
+    level["key"] = m_levelKey;
+    root["level"] = level;
+    root["ticksPerSecond"] = kTicksPerSecond;
+    root["length"] = (int)m_runInputs.size();
+    root["twoPlayers"] = m_twoPlayers;
+    root["recordedBy"] = modeLabel(m_config.mode);
+    root["attempts"] = m_levelAttempts;
+
+    // Only the moments a button changes: [tick, player (1 or 2), down].
+    auto inputs = matjson::Value::array();
+    uint8_t previous = 0;
+    for (int tick = 0; tick < (int)m_runInputs.size(); tick++) {
+        uint8_t now = m_runInputs[tick];
+        for (int p = 0; p < 2; p++) {
+            uint8_t bit = (uint8_t)(1 << p);
+            if ((now ^ previous) & bit) {
+                inputs.push(matjson::Value(std::vector<matjson::Value>{
+                    matjson::Value(tick), matjson::Value(p + 1), matjson::Value((now & bit) ? 1 : 0)
+                }));
+            }
+        }
+        previous = now;
+    }
+    root["inputs"] = inputs;
+
+    auto fileName = fmt::format("{} {}", safeFileName(m_levelName), suffix);
+    std::ofstream out(macroDir() / fileName, std::ios::trunc);
+    out << root.dump(matjson::NO_INDENTATION);
+    if (out) {
+        m_macroFile = fileName;
+        m_macroKey.clear(); // reload on the next Macro attempt
+    }
+}
+
+void Bot::loadMacro() {
+    m_macro.clear();
+    m_macroFile.clear();
+    m_macroKey = m_levelKey;
+
+    std::error_code ec;
+    auto suffix = fmt::format("[{}].json", m_levelKey);
+    for (auto const& entry : std::filesystem::directory_iterator(macroDir(), ec)) {
+        std::string name;
+        try {
+            name = entry.path().filename().string();
+        }
+        catch (...) {
+            continue;
+        }
+        if (!name.ends_with(suffix)) continue;
+
+        std::ifstream in(entry.path());
+        std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        auto parsed = matjson::parse(text);
+        if (!parsed) continue;
+        auto root = parsed.unwrap();
+
+        int length = (int)root["length"].asInt().unwrapOr(0);
+        auto events = root["inputs"].asArray();
+        if (length <= 0 || length > 10'000'000 || !events) continue;
+
+        m_macro.assign(length, 0);
+        uint8_t state = 0;
+        int last = 0;
+        for (auto& event : events.unwrap()) {
+            int tick = std::clamp((int)event[0].asInt().unwrapOr(0), 0, length);
+            int player = (int)event[1].asInt().unwrapOr(1);
+            bool down = event[2].asInt().unwrapOr(0) != 0;
+            if (tick > last) {
+                std::fill(m_macro.begin() + last, m_macro.begin() + tick, state);
+                last = tick;
+            }
+            uint8_t bit = (uint8_t)(player == 2 ? 2 : 1);
+            state = down ? (state | bit) : (state & ~bit);
+        }
+        std::fill(m_macro.begin() + last, m_macro.end(), state);
+        m_macroFile = name;
+        return;
+    }
+}
+
+void Bot::logProgress(char const* event, float percent) {
+    std::error_code ec;
+    std::filesystem::create_directories(saveDir(), ec);
+    auto path = saveDir() / "progress.csv";
+    bool fresh = !std::filesystem::exists(path, ec);
+    std::ofstream out(path, std::ios::app);
+    if (!out) return;
+    if (fresh) out << "time (UTC),level,mode,event,attempt,percent,brain level,levels beaten,moves learned\n";
+
+    std::string name = m_levelName;
+    std::replace(name.begin(), name.end(), '"', '\'');
+    auto now = std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now());
+    out << fmt::format(
+        "{:%Y-%m-%d %H:%M:%S},\"{}\",{},{},{},{:.1f},{},{},{}\n",
+        now, name, modeLabel(m_config.mode), event, m_levelAttempts, percent,
+        m_skill.brainLevel(), m_skill.levelsBeaten(), m_skill.movesLearned()
+    );
 }
 
 void Bot::ensureBrain() {
     if (m_brainLoaded) return;
-    if (!m_population.load(brainPath())) {
-        m_population.reset(m_config.population, m_rng);
+    if (!m_skill.load(saveDir())) {
+        m_skill.reset(m_rng);
     }
     m_brainLoaded = true;
 }
 
 void Bot::saveBrain() {
-    if (m_brainLoaded) m_population.save(brainPath());
+    if (m_brainLoaded) m_skill.save(saveDir());
 }
 
 void Bot::saveMemory() {
@@ -317,6 +698,9 @@ void Bot::saveMemory() {
 
 void Bot::resetLevelMemory() {
     m_memory.clear();
+    m_learnedUpTo = 0;
+    m_humanBest = 0.f;
+    m_stuckAttempts = 0;
     if (!m_levelKey.empty()) {
         std::error_code ec;
         std::filesystem::remove(this->memoryPath(), ec);
@@ -328,15 +712,26 @@ void Bot::resetLevelMemory() {
 }
 
 void Bot::resetBrain() {
-    this->reloadConfig();
-    m_population.reset(m_config.population, m_rng);
+    // Throw away any training still running on the old brain.
+    if (m_training.valid()) m_training.get();
+    m_pendingTraining = 0;
+    m_skill.reset(m_rng);
     m_brainLoaded = true;
-    m_humanBestPercent = 0.f;
+    m_learnedUpTo = 0;
+    m_humanBest = 0.f;
+    m_stuckAttempts = 0;
     std::error_code ec;
-    std::filesystem::remove(brainPath(), ec);
-    if (m_config.mode == LearnMode::Human) m_attemptPrepared = false;
+    std::filesystem::remove(saveDir() / "skill.bin", ec);
+    std::filesystem::remove(saveDir() / "experience.bin", ec);
+    if (m_config.mode != LearnMode::Macro) m_attemptPrepared = false;
     m_lastEvent = "Brain reset";
     if (m_layer) this->updateHud(m_layer);
+}
+
+void Bot::openFolder() {
+    std::error_code ec;
+    std::filesystem::create_directories(macroDir(), ec);
+    geode::utils::file::openFolder(saveDir());
 }
 
 void Bot::applySpeed() {
@@ -359,10 +754,18 @@ std::string Bot::statusText() const {
 
     std::string text = fmt::format(
         "AI Bot - {}{}",
-        m_config.mode == LearnMode::Memory ? "Memory" : "Human",
-        m_config.learning ? " (learning)" : " (showing)"
+        modeLabel(m_config.mode),
+        m_config.mode == LearnMode::Macro ? "" : (m_config.learning ? " (learning)" : " (showing)")
     );
-    if (m_config.speed != 1.f) text += fmt::format("  x{:.2f}", m_config.speed);
+    if (m_config.speed != 1.f) text += fmt::format("  x{:g}", m_config.speed);
+
+    if (m_brainLoaded && m_config.mode != LearnMode::Macro) {
+        text += fmt::format(
+            "\nBrain lv {} | {} levels beaten | {} moves | acc {:.0f}%{}",
+            m_skill.brainLevel(), m_skill.levelsBeaten(), m_skill.movesLearned(),
+            m_skill.accuracy() * 100.f, m_training.valid() ? " | thinking..." : ""
+        );
+    }
 
     if (m_layer) {
         if (m_layer->m_isPlatformer) return text + "\nPlatformer levels are not supported";
@@ -370,11 +773,12 @@ std::string Bot::statusText() const {
         if (!m_attemptPrepared && !m_attemptEnded) return text + "\nStarts on the next attempt (restart)";
     }
 
-    if (m_config.mode == LearnMode::Memory) {
-        if (m_levelKey.empty()) {
-            text += "\nEnter a level to start";
-        }
-        else {
+    switch (m_config.mode) {
+        case LearnMode::Memory: {
+            if (m_levelKey.empty()) {
+                text += "\nEnter a level to start";
+                break;
+            }
             text += fmt::format(
                 "\nAttempt {} | Best {:.1f}% | Now {:.1f}%",
                 m_memory.attempts(), m_memory.bestPercent(), m_attemptPercent
@@ -382,22 +786,25 @@ std::string Bot::statusText() const {
             if (m_memory.completed()) {
                 text += "\nLevel beaten - replaying the winning run";
             }
-            else if (m_config.learning && m_memory.attempts() > 0) {
-                float back = (m_memory.bestTick() - m_memory.branchTick()) / (float)kTicksPerSecond;
-                text += fmt::format("\nTrying new moves {:.2f}s before the furthest death", std::max(0.f, back));
+            else if (m_config.learning && m_memory.attempts() > 0 && m_memory.exploring()) {
+                text += m_memory.guided() ? "\nTrying what the brain suggests" : "\nTrying random new moves";
             }
+            break;
         }
-    }
-    else {
-        if (!m_brainLoaded) {
-            text += "\nBrain will load in a level";
-        }
-        else {
+        case LearnMode::Human: {
             text += fmt::format(
-                "\nGen {} | Brain {}/{} | Best {:.1f}% | Now {:.1f}%",
-                m_population.generation(), m_population.index() + 1, m_population.size(),
-                m_humanBestPercent, m_attemptPercent
+                "\nAttempt {} | Best {:.1f}% | Now {:.1f}%",
+                m_levelAttempts, m_humanBest, m_attemptPercent
             );
+            break;
+        }
+        case LearnMode::Macro: {
+            if (m_layer && m_macroKey == m_levelKey) {
+                text += m_macro.empty()
+                    ? "\nNo macro for this level yet - beat it in Memory or Human mode"
+                    : fmt::format("\nPlaying: {}", m_macroFile);
+            }
+            break;
         }
     }
 

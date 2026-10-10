@@ -8,7 +8,11 @@
 using namespace aibot;
 
 namespace {
-    constexpr char kMagic[8] = {'G', 'D', 'A', 'I', 'B', 'R', 'N', '1'};
+    constexpr char kSkillMagic[8] = {'G', 'D', 'A', 'I', 'S', 'K', 'L', '1'};
+    constexpr char kDataMagic[8] = {'G', 'D', 'A', 'I', 'E', 'X', 'P', '1'};
+    constexpr size_t kMaxExperience = 120'000;
+    constexpr int kBatchSize = 32;
+    constexpr float kLearningRate = 0.003f;
 
     // Offsets inside one mode's network.
     constexpr int kW1 = 0;
@@ -24,11 +28,12 @@ namespace {
         return mode == Cube || mode == Ball || mode == Ufo || mode == Robot || mode == Spider;
     }
 
-    // The starting "instinct" for each mode, so the bot does not begin from
-    // pure noise: jump modes jump when something dangerous is right ahead,
-    // flying modes go up when danger is below and while falling.
+    // The starting "instinct" for each mode, so a brand new brain does not
+    // begin from pure noise: jump modes jump when something dangerous is
+    // right ahead, flying modes go up when danger is below and while falling.
     void seedInstinct(float* net, int mode) {
         float* hidden0 = net + kW1;
+        for (int i = 0; i < kInputs; i++) hidden0[i] = 0.f;
         if (isJumpMode(mode)) {
             for (int col = 1; col <= 2; col++) {
                 for (int row = 2; row <= 4; row++) {
@@ -59,31 +64,6 @@ namespace {
         }
     }
 
-    Genome instinctGenome(std::mt19937& rng) {
-        std::normal_distribution<float> noise(0.f, 0.1f);
-        Genome genome;
-        genome.weights.resize(kGenomeSize);
-        for (auto& w : genome.weights) w = noise(rng);
-        for (int mode = 0; mode < ModeCount; mode++) {
-            float* net = genome.weights.data() + mode * kNetSize;
-            // Clear the first hidden neuron before giving it its instinct.
-            for (int i = 0; i < kInputs; i++) net[kW1 + i] = 0.f;
-            seedInstinct(net, mode);
-        }
-        return genome;
-    }
-
-    void mutate(Genome& genome, float rate, float strength, std::mt19937& rng) {
-        std::uniform_real_distribution<float> chance(0.f, 1.f);
-        std::normal_distribution<float> noise(0.f, strength);
-        for (auto& w : genome.weights) {
-            if (chance(rng) < rate) {
-                w = std::clamp(w + noise(rng), -8.f, 8.f);
-            }
-        }
-        genome.fitness = -1.f;
-    }
-
     template <class T>
     void write(std::ofstream& out, T const& value) {
         out.write(reinterpret_cast<char const*>(&value), sizeof(T));
@@ -93,155 +73,266 @@ namespace {
     bool read(std::ifstream& in, T& value) {
         return static_cast<bool>(in.read(reinterpret_cast<char*>(&value), sizeof(T)));
     }
-
-    bool readWeights(std::ifstream& in, Genome& genome) {
-        genome.weights.resize(kGenomeSize);
-        return read(in, genome.fitness) &&
-            in.read(reinterpret_cast<char*>(genome.weights.data()), kGenomeSize * sizeof(float));
-    }
-
-    void writeWeights(std::ofstream& out, Genome const& genome) {
-        write(out, genome.fitness);
-        out.write(reinterpret_cast<char const*>(genome.weights.data()), kGenomeSize * sizeof(float));
-    }
 }
 
-float aibot::evaluate(Genome const& genome, int mode, float const* inputs) {
-    if (genome.weights.size() != (size_t)kGenomeSize) return 0.f;
+Sample aibot::makeSample(float const* inputs, int mode, bool hold) {
+    Sample sample{};
+    for (int i = 0; i < kGridInputs; i++) {
+        if (inputs[i] > 0.5f) sample.grid[i / 8] |= (uint8_t)(1 << (i % 8));
+    }
+    std::copy_n(inputs + kGridInputs, kExtraInputs, sample.extra);
+    sample.mode = (uint8_t)std::clamp(mode, 0, ModeCount - 1);
+    sample.hold = hold ? 1 : 0;
+    return sample;
+}
+
+void aibot::unpackSample(Sample const& sample, float* inputs) {
+    for (int i = 0; i < kGridInputs; i++) {
+        inputs[i] = (sample.grid[i / 8] >> (i % 8)) & 1 ? 1.f : 0.f;
+    }
+    std::copy_n(sample.extra, kExtraInputs, inputs + kGridInputs);
+}
+
+void Skill::reset(std::mt19937& rng) {
+    std::normal_distribution<float> noise(0.f, 0.08f);
+    m_weights.assign(kBrainSize, 0.f);
+    for (auto& w : m_weights) w = noise(rng);
+    for (int mode = 0; mode < ModeCount; mode++) {
+        seedInstinct(m_weights.data() + mode * kNetSize, mode);
+    }
+    m_adamM.assign(kBrainSize, 0.f);
+    m_adamV.assign(kBrainSize, 0.f);
+    m_grad.assign(kBrainSize, 0.f);
+    m_adamT = 0;
+    m_data.clear();
+    std::fill(std::begin(m_holdCount), std::end(m_holdCount), 0);
+    std::fill(std::begin(m_totalCount), std::end(m_totalCount), 0);
+    m_beatenLevels.clear();
+    m_movesLearned = 0;
+    m_accuracy = 0.f;
+}
+
+float Skill::predict(int mode, float const* inputs) const {
+    if (m_weights.size() != (size_t)kBrainSize) return 0.f;
     mode = std::clamp(mode, 0, ModeCount - 1);
-    float const* net = genome.weights.data() + mode * kNetSize;
+    float const* net = m_weights.data() + mode * kNetSize;
 
     float out = net[kB2];
     for (int h = 0; h < kHidden; h++) {
         float const* row = net + kW1 + h * kInputs;
         float sum = net[kB1 + h];
         for (int i = 0; i < kInputs; i++) {
-            sum += row[i] * inputs[i];
+            if (inputs[i] != 0.f) sum += row[i] * inputs[i];
         }
         out += net[kW2 + h] * std::tanh(sum);
     }
     return sigmoid(out);
 }
 
-void Population::reset(int size, std::mt19937& rng) {
-    size = std::max(size, 2);
-    m_genomes.clear();
-    m_genomes.push_back(instinctGenome(rng));
-    while ((int)m_genomes.size() < size) {
-        auto genome = m_genomes.front();
-        mutate(genome, 0.2f, 0.5f, rng);
-        m_genomes.push_back(std::move(genome));
-    }
-    m_champion = m_genomes.front();
-    m_champion.fitness = -1.f;
-    m_index = 0;
-    m_generation = 1;
-}
-
-bool Population::report(float fitness, int nextSize, float mutationRate, std::mt19937& rng) {
-    if (m_genomes.empty()) return false;
-
-    auto& genome = m_genomes[m_index];
-    genome.fitness = fitness;
-    if (fitness > m_champion.fitness) {
-        m_champion = genome;
-    }
-
-    m_index++;
-    if (m_index < (int)m_genomes.size()) return false;
-
-    this->evolve(nextSize, mutationRate, rng);
-    return true;
-}
-
-void Population::evolve(int nextSize, float mutationRate, std::mt19937& rng) {
-    nextSize = std::max(nextSize, 2);
-    std::sort(m_genomes.begin(), m_genomes.end(), [](Genome const& a, Genome const& b) {
-        return a.fitness > b.fitness;
-    });
-
-    int elites = std::max(2, nextSize / 5);
-    int parents = std::max(2, (int)m_genomes.size() / 2);
-
-    std::vector<Genome> next;
-    next.reserve(nextSize);
-
-    // The all-time champion always survives, so a lucky run is not lost.
-    next.push_back(m_champion);
-    for (int i = 0; i < (int)m_genomes.size() && (int)next.size() < elites; i++) {
-        next.push_back(m_genomes[i]);
-    }
-
-    std::uniform_int_distribution<int> pick(0, parents - 1);
-    std::uniform_real_distribution<float> chance(0.f, 1.f);
-    auto tournament = [&]() -> Genome const& {
-        int a = pick(rng), b = pick(rng), c = pick(rng);
-        int best = std::min({a, b, c}); // sorted, so lower index = fitter
-        return m_genomes[best];
-    };
-
-    while ((int)next.size() < nextSize) {
-        auto const& mom = tournament();
-        auto const& dad = tournament();
-        Genome child;
-        child.weights.resize(kGenomeSize);
-        // Inherit each mode's network as a whole from one of the parents.
-        for (int mode = 0; mode < ModeCount; mode++) {
-            auto const& src = chance(rng) < 0.5f ? mom : dad;
-            std::copy_n(src.weights.begin() + mode * kNetSize, kNetSize, child.weights.begin() + mode * kNetSize);
+void Skill::addExperience(std::vector<Sample> const& samples, std::mt19937& rng) {
+    for (auto const& sample : samples) {
+        m_holdCount[sample.mode] += sample.hold;
+        m_totalCount[sample.mode]++;
+        m_movesLearned++;
+        if (m_data.size() < kMaxExperience) {
+            m_data.push_back(sample);
         }
-        bool bold = chance(rng) < 0.1f;
-        mutate(child, bold ? mutationRate * 4.f : mutationRate, bold ? 0.8f : 0.35f, rng);
-        next.push_back(std::move(child));
+        else {
+            // Full: replace a random old memory, so old skills fade slowly
+            // instead of being cut off.
+            m_data[std::uniform_int_distribution<size_t>(0, m_data.size() - 1)(rng)] = sample;
+        }
     }
-
-    for (auto& genome : next) genome.fitness = -1.f;
-    m_genomes = std::move(next);
-    m_index = 0;
-    m_generation++;
 }
 
-bool Population::load(std::filesystem::path const& path) {
-    std::ifstream in(path, std::ios::binary);
+void Skill::train(int steps, std::mt19937& rng) {
+    if (m_data.empty() || m_weights.empty()) return;
+    if (m_grad.size() != (size_t)kBrainSize) {
+        m_adamM.assign(kBrainSize, 0.f);
+        m_adamV.assign(kBrainSize, 0.f);
+        m_grad.assign(kBrainSize, 0.f);
+    }
+    std::uniform_int_distribution<size_t> pick(0, m_data.size() - 1);
+    std::vector<Sample const*> batch(kBatchSize);
+    for (int s = 0; s < steps; s++) {
+        for (auto& sample : batch) sample = &m_data[pick(rng)];
+        this->step(batch);
+    }
+}
+
+void Skill::step(std::vector<Sample const*> const& batch) {
+    bool touched[ModeCount] = {};
+    float inputs[kInputs];
+    float hidden[kHidden];
+    int correct = 0;
+
+    for (auto sample : batch) {
+        int mode = sample->mode;
+        touched[mode] = true;
+        float* net = m_weights.data() + mode * kNetSize;
+        float* grad = m_grad.data() + mode * kNetSize;
+        unpackSample(*sample, inputs);
+
+        float out = net[kB2];
+        for (int h = 0; h < kHidden; h++) {
+            float const* row = net + kW1 + h * kInputs;
+            float sum = net[kB1 + h];
+            for (int i = 0; i < kInputs; i++) {
+                if (inputs[i] != 0.f) sum += row[i] * inputs[i];
+            }
+            hidden[h] = std::tanh(sum);
+            out += net[kW2 + h] * hidden[h];
+        }
+        float p = sigmoid(out);
+        float y = sample->hold ? 1.f : 0.f;
+        correct += (p > 0.5f) == (y > 0.5f);
+
+        // Holds are rarer than releases in most modes: weigh them up so the
+        // brain does not learn "never click".
+        float weight = 1.f;
+        if (y > 0.5f) {
+            auto holds = std::max<uint64_t>(m_holdCount[mode], 1);
+            auto releases = m_totalCount[mode] - std::min(m_totalCount[mode], holds);
+            weight = std::clamp((float)releases / (float)holds, 1.f, 8.f);
+        }
+
+        float dOut = (p - y) * weight;
+        grad[kB2] += dOut;
+        for (int h = 0; h < kHidden; h++) {
+            grad[kW2 + h] += dOut * hidden[h];
+            float dHidden = dOut * net[kW2 + h] * (1.f - hidden[h] * hidden[h]);
+            grad[kB1 + h] += dHidden;
+            float* row = grad + kW1 + h * kInputs;
+            for (int i = 0; i < kInputs; i++) {
+                if (inputs[i] != 0.f) row[i] += dHidden * inputs[i];
+            }
+        }
+    }
+
+    m_accuracy = m_accuracy * 0.995f + 0.005f * ((float)correct / (float)batch.size());
+
+    // Adam update for the networks used in this batch.
+    m_adamT++;
+    float scale = 1.f / (float)batch.size();
+    float corr1 = 1.f - std::pow(0.9f, (float)m_adamT);
+    float corr2 = 1.f - std::pow(0.999f, (float)m_adamT);
+    for (int mode = 0; mode < ModeCount; mode++) {
+        if (!touched[mode]) continue;
+        size_t begin = (size_t)mode * kNetSize, end = begin + kNetSize;
+        for (size_t i = begin; i < end; i++) {
+            float g = m_grad[i] * scale;
+            m_grad[i] = 0.f;
+            m_adamM[i] = 0.9f * m_adamM[i] + 0.1f * g;
+            m_adamV[i] = 0.999f * m_adamV[i] + 0.001f * g * g;
+            float update = kLearningRate * (m_adamM[i] / corr1) / (std::sqrt(m_adamV[i] / corr2) + 1e-6f);
+            m_weights[i] = std::clamp(m_weights[i] - update, -12.f, 12.f);
+        }
+    }
+}
+
+void Skill::adoptTraining(Skill const& trained) {
+    if (trained.m_weights.size() != (size_t)kBrainSize) return;
+    m_weights = trained.m_weights;
+    m_adamM = trained.m_adamM;
+    m_adamV = trained.m_adamV;
+    m_grad.assign(kBrainSize, 0.f);
+    m_adamT = trained.m_adamT;
+    m_accuracy = trained.m_accuracy;
+}
+
+void Skill::markLevelBeaten(std::string const& key) {
+    if (!this->hasBeaten(key)) m_beatenLevels.push_back(key);
+}
+
+bool Skill::hasBeaten(std::string const& key) const {
+    return std::find(m_beatenLevels.begin(), m_beatenLevels.end(), key) != m_beatenLevels.end();
+}
+
+int Skill::brainLevel() const {
+    return 1 + (int)m_beatenLevels.size() * 2 + (int)std::log2(1.0 + (double)m_movesLearned / 500.0);
+}
+
+bool Skill::load(std::filesystem::path const& dir) {
+    std::ifstream in(dir / "skill.bin", std::ios::binary);
     if (!in) return false;
 
     char magic[8];
-    if (!in.read(magic, sizeof(magic)) || std::memcmp(magic, kMagic, sizeof(magic)) != 0) return false;
+    if (!in.read(magic, sizeof(magic)) || std::memcmp(magic, kSkillMagic, sizeof(magic)) != 0) return false;
 
-    int32_t genomeSize, generation, index, count;
-    if (!read(in, genomeSize) || !read(in, generation) || !read(in, index) || !read(in, count)) return false;
-    if (genomeSize != kGenomeSize || count < 1 || count > 256) return false;
+    int32_t size;
+    if (!read(in, size) || size != kBrainSize) return false;
+    std::vector<float> weights(kBrainSize);
+    if (!in.read(reinterpret_cast<char*>(weights.data()), kBrainSize * sizeof(float))) return false;
 
-    Genome champion;
-    if (!readWeights(in, champion)) return false;
-
-    std::vector<Genome> genomes(count);
-    for (auto& genome : genomes) {
-        if (!readWeights(in, genome)) return false;
+    uint64_t moves;
+    float accuracy;
+    uint32_t beatenCount;
+    if (!read(in, moves) || !read(in, accuracy) || !read(in, beatenCount) || beatenCount > 100'000) return false;
+    std::vector<std::string> beaten;
+    for (uint32_t i = 0; i < beatenCount; i++) {
+        uint32_t length;
+        if (!read(in, length) || length > 256) return false;
+        std::string key(length, '\0');
+        if (!in.read(key.data(), length)) return false;
+        beaten.push_back(std::move(key));
     }
 
-    m_champion = std::move(champion);
-    m_genomes = std::move(genomes);
-    m_generation = generation;
-    m_index = std::clamp(index, 0, count - 1);
+    m_weights = std::move(weights);
+    m_adamM.assign(kBrainSize, 0.f);
+    m_adamV.assign(kBrainSize, 0.f);
+    m_grad.assign(kBrainSize, 0.f);
+    m_adamT = 0;
+    m_movesLearned = moves;
+    m_accuracy = accuracy;
+    m_beatenLevels = std::move(beaten);
+
+    // The experience is optional: without it the brain still plays.
+    m_data.clear();
+    std::fill(std::begin(m_holdCount), std::end(m_holdCount), 0);
+    std::fill(std::begin(m_totalCount), std::end(m_totalCount), 0);
+    std::ifstream data(dir / "experience.bin", std::ios::binary);
+    uint32_t sampleSize, count;
+    if (data && data.read(magic, sizeof(magic)) && std::memcmp(magic, kDataMagic, sizeof(magic)) == 0 &&
+        read(data, sampleSize) && sampleSize == sizeof(Sample) && read(data, count) && count <= kMaxExperience) {
+        std::vector<Sample> samples(count);
+        if (data.read(reinterpret_cast<char*>(samples.data()), (std::streamsize)count * sizeof(Sample))) {
+            m_data = std::move(samples);
+            for (auto const& sample : m_data) {
+                if (sample.mode >= ModeCount) continue;
+                m_holdCount[sample.mode] += sample.hold;
+                m_totalCount[sample.mode]++;
+            }
+        }
+    }
     return true;
 }
 
-bool Population::save(std::filesystem::path const& path) const {
-    if (m_genomes.empty()) return false;
+bool Skill::save(std::filesystem::path const& dir) const {
+    if (m_weights.empty()) return false;
     std::error_code ec;
-    std::filesystem::create_directories(path.parent_path(), ec);
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    std::filesystem::create_directories(dir, ec);
+
+    std::ofstream out(dir / "skill.bin", std::ios::binary | std::ios::trunc);
+    if (!out) return false;
+    out.write(kSkillMagic, sizeof(kSkillMagic));
+    write(out, (int32_t)kBrainSize);
+    out.write(reinterpret_cast<char const*>(m_weights.data()), kBrainSize * sizeof(float));
+    write(out, m_movesLearned);
+    write(out, m_accuracy);
+    write(out, (uint32_t)m_beatenLevels.size());
+    for (auto const& key : m_beatenLevels) {
+        write(out, (uint32_t)key.size());
+        out.write(key.data(), key.size());
+    }
     if (!out) return false;
 
-    out.write(kMagic, sizeof(kMagic));
-    write(out, (int32_t)kGenomeSize);
-    write(out, (int32_t)m_generation);
-    write(out, (int32_t)m_index);
-    write(out, (int32_t)m_genomes.size());
-    writeWeights(out, m_champion);
-    for (auto const& genome : m_genomes) writeWeights(out, genome);
-    return static_cast<bool>(out);
+    std::ofstream data(dir / "experience.bin", std::ios::binary | std::ios::trunc);
+    if (!data) return false;
+    data.write(kDataMagic, sizeof(kDataMagic));
+    write(data, (uint32_t)sizeof(Sample));
+    write(data, (uint32_t)m_data.size());
+    data.write(reinterpret_cast<char const*>(m_data.data()), (std::streamsize)m_data.size() * sizeof(Sample));
+    return static_cast<bool>(data);
 }
 
 void Hands::reset() {

@@ -12,7 +12,7 @@ using namespace geode::prelude;
 using namespace aibot;
 
 namespace {
-    constexpr std::array<float, 9> kSpeeds = {0.25f, 0.5f, 1.f, 1.5f, 2.f, 3.f, 4.f, 6.f, 8.f};
+    constexpr std::array<float, 12> kSpeeds = {0.25f, 0.5f, 1.f, 1.5f, 2.f, 3.f, 4.f, 6.f, 8.f, 10.f, 15.f, 20.f};
 
     void settingsChanged() {
         Bot::get().reloadConfig();
@@ -47,15 +47,19 @@ bool BotPopup::init() {
     m_mainLayer->addChildAtPosition(rowLabel("Mode:"), Anchor::Center, {-170.f, 50.f});
     m_memorySprite = ButtonSprite::create("Memory", "bigFont.fnt", "GJ_button_01.png", 0.7f);
     m_humanSprite = ButtonSprite::create("Human", "bigFont.fnt", "GJ_button_01.png", 0.7f);
-    m_memorySprite->setScale(0.75f);
-    m_humanSprite->setScale(0.75f);
+    m_macroSprite = ButtonSprite::create("Macro", "bigFont.fnt", "GJ_button_01.png", 0.7f);
+    for (auto sprite : {m_memorySprite, m_humanSprite, m_macroSprite}) sprite->setScale(0.62f);
     m_buttonMenu->addChildAtPosition(
         CCMenuItemExt::createSpriteExtra(m_memorySprite, [this](auto) { this->setMode("Memory"); }),
-        Anchor::Center, {-20.f, 50.f}
+        Anchor::Center, {-50.f, 50.f}
     );
     m_buttonMenu->addChildAtPosition(
         CCMenuItemExt::createSpriteExtra(m_humanSprite, [this](auto) { this->setMode("Human"); }),
-        Anchor::Center, {95.f, 50.f}
+        Anchor::Center, {40.f, 50.f}
+    );
+    m_buttonMenu->addChildAtPosition(
+        CCMenuItemExt::createSpriteExtra(m_macroSprite, [this](auto) { this->setMode("Macro"); }),
+        Anchor::Center, {125.f, 50.f}
     );
 
     m_mainLayer->addChildAtPosition(rowLabel("Speed:"), Anchor::Center, {-170.f, 18.f});
@@ -76,25 +80,26 @@ bool BotPopup::init() {
     m_mainLayer->addChildAtPosition(m_speedLabel, Anchor::Center, {35.f, 18.f});
 
     auto hint = CCLabelBMFont::create("Changes apply from the next attempt", "chatFont.fnt");
-    hint->setScale(0.55f);
+    hint->setScale(0.5f);
     hint->setColor({180, 180, 180});
-    m_mainLayer->addChildAtPosition(hint, Anchor::Center, {0.f, -8.f});
+    m_mainLayer->addChildAtPosition(hint, Anchor::Center, {0.f, -2.f});
 
     m_status = CCLabelBMFont::create("", "chatFont.fnt");
     m_status->setAlignment(kCCTextAlignmentCenter);
-    m_status->setScale(0.6f);
+    m_status->setScale(0.5f);
     m_mainLayer->addChildAtPosition(m_status, Anchor::Center, {0.f, -50.f});
 
     auto resetLevel = ButtonSprite::create("Reset level", "goldFont.fnt", "GJ_button_05.png", 0.7f);
     auto resetBrain = ButtonSprite::create("Reset brain", "goldFont.fnt", "GJ_button_05.png", 0.7f);
+    auto folder = ButtonSprite::create("Macros", "goldFont.fnt", "GJ_button_02.png", 0.7f);
     auto more = ButtonSprite::create("Settings", "goldFont.fnt", "GJ_button_01.png", 0.7f);
-    for (auto sprite : {resetLevel, resetBrain, more}) sprite->setScale(0.7f);
+    for (auto sprite : {resetLevel, resetBrain, folder, more}) sprite->setScale(0.58f);
 
     m_buttonMenu->addChildAtPosition(
         CCMenuItemExt::createSpriteExtra(resetLevel, [this](auto) {
             createQuickPopup(
                 "Reset level memory",
-                "Forget everything the bot learned on <cy>this level</c> in Memory mode?",
+                "Forget the bot's memory of <cy>this level</c>? Its brain and macros are kept.",
                 "Cancel", "Reset",
                 [this](auto, bool confirmed) {
                     if (!confirmed) return;
@@ -103,13 +108,13 @@ bool BotPopup::init() {
                 }
             );
         }),
-        Anchor::Center, {-120.f, -108.f}
+        Anchor::Center, {-132.f, -108.f}
     );
     m_buttonMenu->addChildAtPosition(
         CCMenuItemExt::createSpriteExtra(resetBrain, [this](auto) {
             createQuickPopup(
                 "Reset brain",
-                "Erase the <cy>Human mode</c> neural networks and start evolution from scratch?",
+                "Erase everything the bot has learned on <cy>all levels</c> (its brain and experience)? Macros are kept.",
                 "Cancel", "Reset",
                 [this](auto, bool confirmed) {
                     if (!confirmed) return;
@@ -118,13 +123,19 @@ bool BotPopup::init() {
                 }
             );
         }),
-        Anchor::Center, {0.f, -108.f}
+        Anchor::Center, {-45.f, -108.f}
+    );
+    m_buttonMenu->addChildAtPosition(
+        CCMenuItemExt::createSpriteExtra(folder, [](auto) {
+            Bot::get().openFolder();
+        }),
+        Anchor::Center, {38.f, -108.f}
     );
     m_buttonMenu->addChildAtPosition(
         CCMenuItemExt::createSpriteExtra(more, [](auto) {
             openSettingsPopup(Mod::get());
         }),
-        Anchor::Center, {120.f, -108.f}
+        Anchor::Center, {125.f, -108.f}
     );
 
     this->refresh();
@@ -165,10 +176,13 @@ void BotPopup::changeSpeed(float direction) {
 
 void BotPopup::refresh() {
     auto const& config = Bot::get().config();
-    bool memory = config.mode == LearnMode::Memory;
-    m_memorySprite->updateBGImage(memory ? "GJ_button_01.png" : "GJ_button_04.png");
-    m_humanSprite->updateBGImage(memory ? "GJ_button_04.png" : "GJ_button_01.png");
-    m_speedLabel->setString(fmt::format("x{:.2f}", config.speed).c_str());
+    auto pick = [&](LearnMode mode) {
+        return config.mode == mode ? "GJ_button_01.png" : "GJ_button_04.png";
+    };
+    m_memorySprite->updateBGImage(pick(LearnMode::Memory));
+    m_humanSprite->updateBGImage(pick(LearnMode::Human));
+    m_macroSprite->updateBGImage(pick(LearnMode::Macro));
+    m_speedLabel->setString(fmt::format("x{:g}", config.speed).c_str());
     m_status->setString(Bot::get().statusText().c_str());
 }
 

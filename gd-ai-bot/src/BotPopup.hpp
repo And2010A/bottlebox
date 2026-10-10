@@ -23,6 +23,7 @@ protected:
 
     ButtonSprite* m_memorySprite = nullptr;
     ButtonSprite* m_humanSprite = nullptr;
+    ButtonSprite* m_macroSprite = nullptr;
     cocos2d::CCLabelBMFont* m_speedLabel = nullptr;
     cocos2d::CCLabelBMFont* m_status = nullptr;
 };

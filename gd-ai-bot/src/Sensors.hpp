@@ -19,7 +19,9 @@ public:
     // Collects the objects that matter (solids, hazards, orbs, pads).
     // Cheap to call every attempt: only rebuilds when the level changed.
     void prepare(GJBaseGameLayer* layer);
-    void observe(PlayerObject* player, bool holding, bool dual, float* out) const;
+    // `lookahead` shifts the view forward (in units), so a delayed press
+    // lands where it is needed - the way a person reacts ahead of time.
+    void observe(PlayerObject* player, bool dual, float* out, float lookahead = 0.f) const;
 
 private:
     struct Entry {

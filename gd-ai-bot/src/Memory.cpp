@@ -16,6 +16,8 @@ namespace {
     constexpr int kBaseBackoff = 48;
     // After this many failures at the same frontier, look further back.
     constexpr int kFailsBeforeWidening = 8;
+    // While following the brain, how often to try something else instead.
+    constexpr float kDeviationPerTick = 1.f / 300.f;
 
     uint64_t mix(uint64_t hash, uint8_t value) {
         hash ^= value + 0x9E3779B97F4A7C15ull + (hash << 6) + (hash >> 2);
@@ -139,8 +141,21 @@ void MemoryLearner::push(Input input) {
     m_hash = mix(m_hash, input);
 }
 
-void MemoryLearner::startExploring(int tick, int modeP1, int modeP2, bool twoPlayers, std::mt19937& rng) {
+void MemoryLearner::startExploring(int tick, int modeP1, int modeP2, bool twoPlayers, bool canGuide, std::mt19937& rng) {
     m_exploring = true;
+    // Mostly trust the brain, but the longer this spot resists, the more
+    // often try wild ideas instead.
+    float trust = std::max(0.25f, 0.85f - 0.04f * (float)m_failsAtFrontier);
+    std::uniform_real_distribution<float> chance(0.f, 1.f);
+    m_guided = canGuide && chance(rng) < trust;
+    m_threshold = 0.35f + 0.3f * chance(rng);
+    m_deviateUntil[0] = m_deviateUntil[1] = -1;
+    // The first try at a new spot shows exactly what the brain would do.
+    m_pureGuide = canGuide && m_failsAtFrontier == 0;
+    if (m_pureGuide) {
+        m_guided = true;
+        m_threshold = 0.5f;
+    }
     m_state = m_current.empty() ? 0 : m_current.back();
     int modes[2] = {modeP1, modeP2};
     for (int p = 0; p < (twoPlayers ? 2 : 1); p++) {
@@ -151,7 +166,7 @@ void MemoryLearner::startExploring(int tick, int modeP1, int modeP2, bool twoPla
     }
 }
 
-MemoryLearner::Input MemoryLearner::decide(int tick, int modeP1, int modeP2, bool twoPlayers, std::mt19937& rng) {
+MemoryLearner::Input MemoryLearner::decide(int tick, int modeP1, int modeP2, bool twoPlayers, float const* guide, std::mt19937& rng) {
     if (tick < 0) tick = 0;
     // Ticks normally arrive one by one; fill any gap with the held state so
     // that index == tick holds for the recording.
@@ -169,10 +184,21 @@ MemoryLearner::Input MemoryLearner::decide(int tick, int modeP1, int modeP2, boo
         input = m_best[tick];
     }
     else {
-        if (!m_exploring) this->startExploring(tick, modeP1, modeP2, twoPlayers, rng);
+        if (!m_exploring) this->startExploring(tick, modeP1, modeP2, twoPlayers, guide != nullptr, rng);
         int modes[2] = {modeP1, modeP2};
         for (int p = 0; p < (twoPlayers ? 2 : 1); p++) {
-            if (tick >= m_nextSwitch[p]) {
+            if (m_guided && guide) {
+                bool want = guide[p] > m_threshold;
+                if (tick < m_deviateUntil[p]) {
+                    want = !want;
+                }
+                else if (!m_pureGuide && std::uniform_real_distribution<float>(0.f, 1.f)(rng) < kDeviationPerTick) {
+                    m_deviateUntil[p] = tick + sampleDuration(modes[p], !want, rng);
+                    want = !want;
+                }
+                m_state = want ? (m_state | (1 << p)) : (m_state & ~(1 << p));
+            }
+            else if (tick >= m_nextSwitch[p]) {
                 m_state ^= (1 << p);
                 bool pressing = (m_state >> p) & 1;
                 m_nextSwitch[p] = tick + sampleDuration(modes[p], pressing, rng);

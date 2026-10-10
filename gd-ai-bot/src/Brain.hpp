@@ -2,9 +2,11 @@
 
 #include "Common.hpp"
 
+#include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <random>
+#include <string>
 #include <vector>
 
 namespace aibot {
@@ -19,56 +21,76 @@ constexpr int kGridInputs = kGridCols * kGridRows * kGridChannels;
 
 enum Channel : int { SolidChannel = 0, HazardChannel = 1, OrbChannel = 2 };
 
-// Extra inputs after the grid: vertical speed, on ground, holding,
+// Extra inputs after the grid: vertical speed, on ground, upside down,
 // horizontal speed, mini size, dual.
 constexpr int kExtraInputs = 6;
 constexpr int kInputs = kGridInputs + kExtraInputs;
-constexpr int kHidden = 12;
+constexpr int kHidden = 16;
 // One small network per game mode.
 constexpr int kNetSize = kInputs * kHidden + kHidden + kHidden + 1;
-constexpr int kGenomeSize = kNetSize * ModeCount;
+constexpr int kBrainSize = kNetSize * ModeCount;
 
 inline int gridIndex(int channel, int col, int row) {
     return (channel * kGridRows + row) * kGridCols + col;
 }
 
-struct Genome {
-    std::vector<float> weights;
-    float fitness = -1.f;
+// One remembered moment: what the bot saw and whether it held.
+struct Sample {
+    uint8_t grid[(kGridInputs + 7) / 8];
+    float extra[kExtraInputs];
+    uint8_t mode;
+    uint8_t hold;
 };
 
-// Probability (0..1) that the network for `mode` wants to hold.
-float evaluate(Genome const& genome, int mode, float const* inputs);
+Sample makeSample(float const* inputs, int mode, bool hold);
+void unpackSample(Sample const& sample, float* inputs);
 
-// Neuro-evolution: every attempt tries one genome; after the whole
-// population has played, the best ones are kept and mutated.
-class Population {
+// The bot's experience, shared by every level. It learns by imitating the
+// moves from its own successful runs (everything it survived), so a level
+// it has beaten teaches it things it can use on the next one.
+class Skill {
 public:
-    void reset(int size, std::mt19937& rng);
-    bool load(std::filesystem::path const& path);
-    bool save(std::filesystem::path const& path) const;
+    void reset(std::mt19937& rng);
+    bool load(std::filesystem::path const& dir);
+    bool save(std::filesystem::path const& dir) const;
 
-    bool empty() const { return m_genomes.empty(); }
-    Genome const& current() const { return m_genomes[m_index]; }
-    Genome const& champion() const { return m_champion; }
-    // Returns true when a new generation was created.
-    bool report(float fitness, int nextSize, float mutationRate, std::mt19937& rng);
+    bool empty() const { return m_weights.empty(); }
+    // Probability (0..1) that holding is right here.
+    float predict(int mode, float const* inputs) const;
 
-    int generation() const { return m_generation; }
-    int index() const { return m_index; }
-    int size() const { return (int)m_genomes.size(); }
-    float bestFitness() const { return m_champion.fitness; }
+    void addExperience(std::vector<Sample> const& samples, std::mt19937& rng);
+    void train(int steps, std::mt19937& rng);
+    // Takes the networks from a copy that was trained in the background,
+    // keeping this brain's own (possibly newer) experience.
+    void adoptTraining(Skill const& trained);
+
+    // Progress shown to the player.
+    void markLevelBeaten(std::string const& key);
+    int levelsBeaten() const { return (int)m_beatenLevels.size(); }
+    bool hasBeaten(std::string const& key) const;
+    uint64_t movesLearned() const { return m_movesLearned; }
+    size_t experienceSize() const { return m_data.size(); }
+    float accuracy() const { return m_accuracy; }
+    // A rough "level" of the brain that grows with what it knows.
+    int brainLevel() const;
 
 private:
-    void evolve(int nextSize, float mutationRate, std::mt19937& rng);
+    void step(std::vector<Sample const*> const& batch);
 
-    std::vector<Genome> m_genomes;
-    Genome m_champion;
-    int m_index = 0;
-    int m_generation = 1;
+    std::vector<float> m_weights;
+    std::vector<float> m_adamM, m_adamV, m_grad;
+    int64_t m_adamT = 0;
+
+    std::vector<Sample> m_data;
+    uint64_t m_holdCount[ModeCount] = {};
+    uint64_t m_totalCount[ModeCount] = {};
+
+    std::vector<std::string> m_beatenLevels;
+    uint64_t m_movesLearned = 0;
+    float m_accuracy = 0.f;
 };
 
-// Human-like execution of the network's wishes: presses happen after a
+// Human-like execution of the brain's wishes: presses happen after a
 // reaction delay, with timing errors and the occasional missed click.
 class Hands {
 public:
