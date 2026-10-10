@@ -1,0 +1,63 @@
+name: Build osu! bot (.exe)
+
+on:
+  push:
+    paths:
+      - "osu-bot/**"
+      - ".github/workflows/osu-bot.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: osu-bot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pyinstaller==6.11.1 pytest
+
+      - name: Unit tests
+        run: python -m pytest -q tests
+
+      - name: Build exe
+        run: pyinstaller --noconfirm --onefile --windowed --name OsuBotClaude main.py
+
+      - name: Smoke test the exe
+        shell: pwsh
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: |
+          $p = Start-Process -FilePath dist\OsuBotClaude.exe -ArgumentList "--selftest" -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            if (Test-Path dist\selftest.log) { Get-Content dist\selftest.log }
+            exit 1
+          }
+          Write-Host "exe started and played the demo map"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: OsuBotClaude
+          path: osu-bot/dist/OsuBotClaude.exe
+
+      - name: Publish to the "osu-bot-latest" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view osu-bot-latest >/dev/null 2>&1; then
+            gh release create osu-bot-latest --prerelease --target "$GITHUB_SHA" \
+              --title "osu! bot by Claude — Windows .exe" \
+              --notes "Download OsuBotClaude.exe, run it, pick any .osu / .osz map and watch the bot play it."
+          fi
+          gh release upload osu-bot-latest dist/OsuBotClaude.exe --clobber

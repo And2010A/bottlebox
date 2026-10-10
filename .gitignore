@@ -1,2 +1,5 @@
 assets/arima-kana/source/_frames/
 __pycache__/
+osu-bot/build/
+osu-bot/dist/
+osu-bot/*.spec
