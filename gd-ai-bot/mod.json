@@ -1,0 +1,114 @@
+{
+	"geode": "5.11.1",
+	"gd": {
+		"win": "2.2081",
+		"android": "2.2081",
+		"mac": "2.2081",
+		"ios": "2.2081"
+	},
+	"id": "and2010a.ai-bot",
+	"name": "AI Bot",
+	"version": "v0.1.0",
+	"developer": "And2010A",
+	"description": "A self-learning bot that teaches itself to beat levels",
+	"tags": ["gameplay", "utility", "offline"],
+	"settings": {
+		"enabled": {
+			"type": "bool",
+			"name": "Bot enabled",
+			"description": "Бот керує грою (вмикається з наступної спроби). Поки бот увімкнений, прогрес і рекорди **не зберігаються**.",
+			"default": false
+		},
+		"mode": {
+			"type": "string",
+			"name": "Learning mode",
+			"description": "**Memory** (Засвоєння) — бот запам'ятовує свої натискання і ніколи не повторює ту саму послідовність, на якій помер; пройдене місце більше не провалює.\n\n**Human** (Як людина) — нейромережа, яка дивиться на перешкоди попереду, реагує із затримкою і може помилитися навіть там, де вже пролітала.",
+			"default": "Memory",
+			"one-of": ["Memory", "Human"]
+		},
+		"learning": {
+			"type": "bool",
+			"name": "Learning",
+			"description": "Якщо вимкнено — бот лише показує те, чого вже навчився, і не змінює свою пам'ять/мозок.",
+			"default": true
+		},
+		"speed": {
+			"type": "float",
+			"name": "Game speed",
+			"description": "Прискорення гри, щоб бот тренувався швидше. 1 = звичайна швидкість. Діє тільки поки бот увімкнений.",
+			"default": 1.0,
+			"min": 0.25,
+			"max": 8.0,
+			"control": {
+				"slider": true,
+				"slider-step": 0.25,
+				"arrow-step": 0.25
+			}
+		},
+		"reaction-ms": {
+			"type": "int",
+			"name": "Reaction delay (ms)",
+			"description": "Режим Human: скільки мілісекунд проходить між тим, як бот \"побачив\" перешкоду, і натисканням. У людей зазвичай 150–250 мс.",
+			"default": 120,
+			"min": 0,
+			"max": 400,
+			"control": {
+				"slider": true,
+				"slider-step": 10,
+				"arrow-step": 10
+			}
+		},
+		"jitter-ms": {
+			"type": "int",
+			"name": "Timing error (ms)",
+			"description": "Режим Human: випадкова неточність кожного натискання (±мс).",
+			"default": 12,
+			"min": 0,
+			"max": 100,
+			"control": {
+				"slider": true,
+				"slider-step": 2,
+				"arrow-step": 2
+			}
+		},
+		"lapse-percent": {
+			"type": "float",
+			"name": "Missed click chance (%)",
+			"description": "Режим Human: шанс, що бот \"проґавить\" натискання, як неуважна людина.",
+			"default": 0.5,
+			"min": 0.0,
+			"max": 10.0,
+			"control": {
+				"slider": true,
+				"slider-step": 0.5,
+				"arrow-step": 0.5
+			}
+		},
+		"population": {
+			"type": "int",
+			"name": "Population size",
+			"description": "Режим Human: скільки варіантів \"мозку\" пробується в одному поколінні еволюції. Більше = повільніше, але стабільніше навчання. Зміна застосовується з наступного покоління.",
+			"default": 20,
+			"min": 6,
+			"max": 64
+		},
+		"mutation-rate": {
+			"type": "float",
+			"name": "Mutation rate",
+			"description": "Режим Human: яка частка \"нейронів\" змінюється у нащадків. Більше = сміливіші експерименти.",
+			"default": 0.05,
+			"min": 0.005,
+			"max": 0.3,
+			"control": {
+				"slider": true,
+				"slider-step": 0.005
+			}
+		},
+		"show-hud": {
+			"type": "bool",
+			"name": "Show HUD",
+			"description": "Показувати в куті екрана статистику бота (спроба, рекорд, покоління).",
+			"default": true
+		}
+	}
+}
