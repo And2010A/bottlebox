@@ -40,10 +40,40 @@ jobs:
           combine: true
           target: ${{ matrix.config.target }}
 
+  # Geode needs a recent Microsoft Visual C++ runtime. These are the
+  # official redistributable DLLs from Visual Studio, for PCs where the
+  # runtime cannot be updated: they work when placed next to GeometryDash.exe.
+  runtime:
+    name: VC++ runtime
+    runs-on: windows-latest
+
+    steps:
+      - name: Collect the Visual C++ runtime DLLs
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $redist = Get-ChildItem "$vs\VC\Redist\MSVC" -Directory |
+            Where-Object { $_.Name -match '^\d+(\.\d+)+$' } |
+            Sort-Object { [version]$_.Name } | Select-Object -Last 1
+          $crt = Get-ChildItem "$($redist.FullName)\x64" -Directory -Filter "Microsoft.VC14*.CRT" | Select-Object -First 1
+          Write-Host "Using $($crt.FullName)"
+          New-Item -ItemType Directory vc-runtime | Out-Null
+          Copy-Item "$($crt.FullName)\*.dll" vc-runtime
+          Get-ChildItem vc-runtime | ForEach-Object { "{0}  {1}" -f $_.Name, $_.VersionInfo.FileVersion }
+          $hit = Select-String -Path vc-runtime\*.dll -Pattern "__std_calloc_crt" -SimpleMatch -List
+          if (-not $hit) { throw "No DLL exports __std_calloc_crt" }
+          $hit | ForEach-Object { "__std_calloc_crt is in $($_.Filename)" }
+          Compress-Archive -Path vc-runtime\* -DestinationPath vc-runtime-x64.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: vc-runtime
+          path: vc-runtime-x64.zip
+
   package:
     name: Package builds
     runs-on: ubuntu-latest
-    needs: ['build']
+    needs: ['build', 'runtime']
     permissions:
       contents: write
 
@@ -55,6 +85,11 @@ jobs:
         with:
           name: AI Bot mod
           path: ${{ steps.build.outputs.build-output }}
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: vc-runtime
+          path: runtime
 
       # A fixed release gives a permanent direct download link:
       # https://github.com/And2010A/bottlebox/releases/download/gd-ai-bot-latest/and2010a.ai-bot.geode
@@ -68,4 +103,6 @@ jobs:
             Самонавчальний бот для Geometry Dash 2.2081 (Geode 5.11.1).
             Поклади `and2010a.ai-bot.geode` у папку `geode/mods` гри. Інструкція: gd-ai-bot/README.md
           prerelease: true
-          files: ${{ steps.build.outputs.build-output }}/*.geode
+          files: |
+            ${{ steps.build.outputs.build-output }}/*.geode
+            runtime/vc-runtime-x64.zip

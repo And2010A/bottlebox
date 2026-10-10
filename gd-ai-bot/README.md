@@ -13,6 +13,13 @@
    - **macOS:** `~/Library/Application Support/GeometryDash/geode/mods/`.
 4. Перезапусти гру. У списку модів Geode з'явиться **AI Bot**.
 
+## Помилка «Точка входа ... __std_calloc_crt не найдена ... Geode.dll»
+
+Це не помилка мода: на ПК застаріла бібліотека Microsoft Visual C++, потрібна Geode. Якщо оновити її не можна:
+1. Завантаж **https://github.com/And2010A/bottlebox/releases/download/gd-ai-bot-latest/vc-runtime-x64.zip** — це офіційні DLL від Microsoft з Visual Studio.
+2. Розпакуй **усі** файли з архіву в папку гри, поруч із `GeometryDash.exe`. Якщо Windows спитає про заміну файлів — погоджуйся.
+3. Запусти гру знову.
+
 ## Як користуватися
 
 1. Зайди в будь-який рівень і натисни **паузу**.
