@@ -80,6 +80,21 @@ namespace {
         return mode != Cube && mode != Ball && mode != Spider;
     }
 
+    // True when pressing cannot change anything for this player right now:
+    // a cube, ball or spider in mid-air with no orb in view, or a robot in
+    // mid-air that is not already holding its jump.
+    bool clickIsIdle(PlayerObject* player, int mode, float const* inputs, std::vector<uint8_t> const& run, uint8_t bit) {
+        if (player->m_isOnGround) return false;
+        for (int col = 0; col < kGridCols; col++) {
+            for (int row = 0; row < kGridRows; row++) {
+                if (inputs[gridIndex(OrbChannel, col, row)] > 0.5f) return false;
+            }
+        }
+        if (mode == Cube || mode == Ball || mode == Spider) return true;
+        if (mode == Robot) return run.empty() || !(run.back() & bit);
+        return false;
+    }
+
     bool orbInView(Sample const& sample) {
         for (int col = 0; col < kGridCols; col++) {
             for (int row = 0; row < kGridRows; row++) {
@@ -312,7 +327,12 @@ void Bot::onTick(PlayLayer* layer) {
             float guide[2] = {m_skill.predict(mode1, inputs1), dual ? m_skill.predict(mode2, inputs2) : 0.f};
             // In a normal dual one button moves both icons: listen to both.
             if (dual && !twoPlayers) guide[0] = (guide[0] + guide[1]) * 0.5f;
-            want = m_memory.decide(tick, mode1, mode2, twoPlayers, guide, m_rng);
+            uint8_t idle = 0;
+            if (clickIsIdle(p1, mode1, inputs1, m_runInputs, 1) && (!dual || twoPlayers || clickIsIdle(p2, mode2, inputs2, m_runInputs, 1))) {
+                idle |= 1;
+            }
+            if (twoPlayers && clickIsIdle(p2, mode2, inputs2, m_runInputs, 2)) idle |= 2;
+            want = m_memory.decide(tick, mode1, mode2, twoPlayers, guide, idle, m_rng);
         }
         else {
             want = this->decideHuman(layer, tick, dual, twoPlayers);
@@ -683,11 +703,14 @@ void Bot::ensureBrain() {
     if (!m_skill.load(saveDir())) {
         m_skill.reset(m_rng);
     }
+    MemoryLearner::loadFixStats(saveDir() / "fixes.bin");
     m_brainLoaded = true;
 }
 
 void Bot::saveBrain() {
-    if (m_brainLoaded) m_skill.save(saveDir());
+    if (!m_brainLoaded) return;
+    m_skill.save(saveDir());
+    MemoryLearner::saveFixStats(saveDir() / "fixes.bin");
 }
 
 void Bot::saveMemory() {
@@ -723,6 +746,8 @@ void Bot::resetBrain() {
     std::error_code ec;
     std::filesystem::remove(saveDir() / "skill.bin", ec);
     std::filesystem::remove(saveDir() / "experience.bin", ec);
+    std::filesystem::remove(saveDir() / "fixes.bin", ec);
+    MemoryLearner::resetFixStats();
     if (m_config.mode != LearnMode::Macro) m_attemptPrepared = false;
     m_lastEvent = "Brain reset";
     if (m_layer) this->updateHud(m_layer);
@@ -786,8 +811,13 @@ std::string Bot::statusText() const {
             if (m_memory.completed()) {
                 text += "\nLevel beaten - replaying the winning run";
             }
-            else if (m_config.learning && m_memory.attempts() > 0 && m_memory.exploring()) {
-                text += m_memory.guided() ? "\nTrying what the brain suggests" : "\nTrying random new moves";
+            else if (m_config.learning && m_memory.attempts() > 0) {
+                if (auto idea = m_memory.currentIdea()) {
+                    text += fmt::format("\nDeaths at this spot: {} | fixing the mistake: {}", m_memory.deathsAtSpot(), idea);
+                }
+                else if (m_memory.exploring()) {
+                    text += m_memory.guided() ? "\nTrying what the brain suggests" : "\nTrying bolder new moves";
+                }
             }
             break;
         }
