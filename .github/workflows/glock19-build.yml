@@ -62,7 +62,7 @@ jobs:
           for jar in $(find ~/.gradle/caches .gradle -name '*.jar' -path '*minecraft*' 2>/dev/null | grep -v sources); do
             if unzip -l "$jar" 2>/dev/null | grep -q 'net/minecraft/client/renderer/ItemInHandRenderer.class'; then
               javap -p -cp "$jar" net.minecraft.client.renderer.ItemInHandRenderer | grep -E 'renderItem|renderArmWithItem'
-              javap -p -cp "$jar" net.minecraft.client.renderer.entity.ThrownItemRenderer net.minecraft.client.renderer.entity.state.ThrownItemRenderState || true
+              unzip -l "$jar" | grep -oE 'net/minecraft/world/entity/projectile/[A-Za-z/]*Throwable[A-Za-z]*\.class' || true
               break
             fi
           done
