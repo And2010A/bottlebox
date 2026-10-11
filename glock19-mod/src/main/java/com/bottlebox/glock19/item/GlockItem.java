@@ -79,15 +79,17 @@ public class GlockItem extends Item {
 			stack.set(ModComponents.AMMO, ammo - 1);
 			player.getCooldowns().addCooldown(stack, FIRE_COOLDOWN_TICKS);
 			fire(serverLevel, player);
-		} else {
-			// Camera kick on the shooter's own client.
-			lastClientShotTime = level.getGameTime();
-			player.setXRot(player.getXRot() - RECOIL_DEGREES);
-			player.setYRot(player.getYRot() + (player.getRandom().nextFloat() - 0.5F) * RECOIL_DEGREES * 0.4F);
+			return InteractionResult.CONSUME;
 		}
 
-		// CONSUME rather than SUCCESS so the arm doesn't do a melee swing.
-		return InteractionResult.CONSUME;
+		// Camera kick on the shooter's own client.
+		lastClientShotTime = level.getGameTime();
+		player.setXRot(player.getXRot() - RECOIL_DEGREES);
+		player.setYRot(player.getYRot() + (player.getRandom().nextFloat() - 0.5F) * RECOIL_DEGREES * 0.4F);
+
+		// The use packet has already gone to the server. A success here would make vanilla play its
+		// lower-and-raise "item used" bob over our own recoil animation, so report no result instead.
+		return InteractionResult.FAIL;
 	}
 
 	private static void fire(ServerLevel level, Player player) {
