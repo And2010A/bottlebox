@@ -17,6 +17,12 @@ public class Glock19ClientGameTest implements FabricClientGameTest {
 		// Fails the run if any mixin can't find its target.
 		MixinEnvironment.getCurrentEnvironment().audit();
 
+		// CI renders in software; a short render distance keeps world loading well inside the 1 minute limit.
+		context.runOnClient(client -> {
+			client.options.renderDistance().set(4);
+			client.options.simulationDistance().set(5);
+		});
+
 		try (TestSingleplayerContext world = context.worldBuilder()
 				.adjustSettings(creator -> creator.setGameMode(WorldCreationUiState.SelectedGameMode.SURVIVAL))
 				.create()) {
