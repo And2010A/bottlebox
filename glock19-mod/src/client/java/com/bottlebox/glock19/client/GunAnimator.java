@@ -67,7 +67,7 @@ public final class GunAnimator {
 		float side = rightHand ? 1.0F : -1.0F;
 
 		poseStack.pushPose();
-		poseStack.translate(side * -0.08F * tilt, 0.05F * tilt + 0.03F * seatBump, 0.06F * recoil);
+		poseStack.translate(side * -0.08F * tilt, 0.05F * tilt + 0.03F * seatBump, 0.025F * recoil);
 		poseStack.mulPose(Axis.ZP.rotationDegrees(side * 30.0F * tilt));
 		poseStack.mulPose(Axis.XP.rotationDegrees(14.0F * tilt + 9.0F * recoil + 4.0F * seatBump));
 

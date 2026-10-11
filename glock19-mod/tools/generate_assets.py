@@ -279,7 +279,7 @@ DISPLAY_MODEL = {
     "textures": {"gun": "glock19:item/glock_19", "particle": "glock19:item/glock_19"},
     "display": {
         "thirdperson_righthand": {"rotation": [0, -90, 90], "translation": [0, 2, -1.6], "scale": [0.85, 0.85, 0.85]},
-        "firstperson_righthand": {"rotation": [0, 90, 0], "translation": [2.5, 2.2, -1.5], "scale": [0.55, 0.55, 0.55]},
+        "firstperson_righthand": {"rotation": [0, 90, 0], "translation": [1.5, 4.6, -1.5], "scale": [0.55, 0.55, 0.55]},
     },
 }
 
