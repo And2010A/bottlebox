@@ -8,5 +8,7 @@
 	"message.glock19.no_ammo": "No 9mm rounds",
 	"subtitles.glock19.shoot": "Glock fires",
 	"subtitles.glock19.empty": "Glock clicks empty",
-	"subtitles.glock19.reload": "Glock reloads"
+	"subtitles.glock19.reload": "Glock reloads",
+	"entity.glock19.bullet": "Bullet",
+	"subtitles.glock19.bullet_impact": "Bullet hits"
 }

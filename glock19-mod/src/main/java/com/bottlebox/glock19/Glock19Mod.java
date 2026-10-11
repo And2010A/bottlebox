@@ -21,6 +21,7 @@ public class Glock19Mod implements ModInitializer {
 		ModComponents.init();
 		ModSounds.init();
 		ModItems.init();
+		ModEntities.init();
 
 		PayloadTypeRegistry.playC2S().register(ReloadPayload.TYPE, ReloadPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(ReloadPayload.TYPE, (payload, context) -> GlockItem.tryReload(context.player()));

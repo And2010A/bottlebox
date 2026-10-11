@@ -33,6 +33,17 @@ public class Glock19ClientGameTest implements FabricClientGameTest {
 			context.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
 			context.waitTick();
 			context.takeScreenshot("fp_recoil");
+			context.waitTick();
+			context.takeScreenshot("fp_bullet_in_flight");
+			context.waitTicks(10);
+
+			// A shot into the ground nearby, to see the impact.
+			world.getServer().runCommand("execute as @a at @s run tp @s ~ ~ ~ 0 35");
+			context.waitTicks(2);
+			context.getInput().pressMouse(GLFW.GLFW_MOUSE_BUTTON_RIGHT);
+			context.waitTicks(2);
+			context.takeScreenshot("fp_bullet_impact");
+			world.getServer().runCommand("execute as @a at @s run tp @s ~ ~ ~ 0 0");
 			context.waitTicks(10);
 
 			context.getInput().pressKey(GLFW.GLFW_KEY_R);

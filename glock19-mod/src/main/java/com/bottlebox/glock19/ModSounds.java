@@ -9,6 +9,7 @@ public final class ModSounds {
 	public static final SoundEvent GLOCK_SHOOT = register("item.glock_19.shoot");
 	public static final SoundEvent GLOCK_EMPTY = register("item.glock_19.empty");
 	public static final SoundEvent GLOCK_RELOAD = register("item.glock_19.reload");
+	public static final SoundEvent BULLET_IMPACT = register("entity.bullet.impact");
 
 	private ModSounds() {
 	}

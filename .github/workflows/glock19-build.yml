@@ -56,12 +56,14 @@ jobs:
         run: |
           chmod +x ./gradlew
           ./gradlew runClientGameTest --stacktrace
-      - name: print hand renderer signatures
+      - name: print vanilla signatures the mod relies on
         if: always()
         run: |
           for jar in $(find ~/.gradle/caches .gradle -name '*.jar' -path '*minecraft*' 2>/dev/null | grep -v sources); do
             if unzip -l "$jar" 2>/dev/null | grep -q 'net/minecraft/client/renderer/ItemInHandRenderer.class'; then
-              javap -p -cp "$jar" net.minecraft.client.renderer.ItemInHandRenderer | grep -E 'renderItem|renderArmWithItem' && break
+              javap -p -cp "$jar" net.minecraft.client.renderer.ItemInHandRenderer | grep -E 'renderItem|renderArmWithItem'
+              javap -p -cp "$jar" net.minecraft.client.renderer.entity.ThrownItemRenderer net.minecraft.client.renderer.entity.state.ThrownItemRenderState || true
+              break
             fi
           done
       - name: print screenshots

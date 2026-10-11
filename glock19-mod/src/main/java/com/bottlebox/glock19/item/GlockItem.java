@@ -1,37 +1,36 @@
 package com.bottlebox.glock19.item;
 
-import java.util.Optional;
-
-import net.minecraft.core.particles.BlockParticleOption;
-import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
-import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 
+import com.bottlebox.glock19.Glock19Mod;
 import com.bottlebox.glock19.ModComponents;
 import com.bottlebox.glock19.ModItems;
 import com.bottlebox.glock19.ModSounds;
+import com.bottlebox.glock19.entity.BulletEntity;
 
 public class GlockItem extends Item {
 	public static final int MAGAZINE_SIZE = 15;
 	public static final int RELOAD_TICKS = 32;
 	private static final int FIRE_COOLDOWN_TICKS = 3;
 	private static final double RANGE = 64.0;
-	private static final float DAMAGE = 6.0F;
-	private static final float SPREAD = 0.012F;
+	/** Blocks per tick: slow enough that the tracer is visible in flight. */
+	private static final float BULLET_SPEED = 3.5F;
+	private static final float BULLET_INACCURACY = 0.4F;
 	private static final float RECOIL_DEGREES = 2.5F;
 
 	/** Client only: game time of the local player's last shot, drives the first-person recoil animation. */
@@ -93,53 +92,29 @@ public class GlockItem extends Item {
 	}
 
 	private static void fire(ServerLevel level, Player player) {
-		Vec3 start = player.getEyePosition();
-		Vec3 direction = player.getViewVector(1.0F).add(
-				player.getRandom().triangle(0.0, SPREAD),
-				player.getRandom().triangle(0.0, SPREAD),
-				player.getRandom().triangle(0.0, SPREAD)).normalize();
-		Vec3 end = start.add(direction.scale(RANGE));
+		Vec3 eye = player.getEyePosition();
+		Vec3 look = player.getViewVector(1.0F);
 
-		BlockHitResult blockHit = level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+		// Aim at whatever is under the crosshair, so the bullet converges on it from the muzzle.
+		Vec3 far = eye.add(look.scale(RANGE));
+		BlockHitResult aimHit = level.clip(new ClipContext(eye, far, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+		Vec3 aim = aimHit.getType() == HitResult.Type.MISS ? far : aimHit.getLocation();
 
-		if (blockHit.getType() != HitResult.Type.MISS) {
-			end = blockHit.getLocation();
-		}
+		// The muzzle sits forward, to the gun-hand side and a little below the eyes.
+		float side = player.getMainArm() == HumanoidArm.RIGHT ? 1.0F : -1.0F;
+		Vec3 right = new Vec3(-look.z, 0.0, look.x).normalize().scale(side);
+		Vec3 muzzle = eye.add(look.scale(0.6)).add(right.scale(0.22)).add(0.0, -0.16, 0.0);
+		Vec3 direction = aim.subtract(muzzle).normalize();
 
-		Entity target = null;
-		double closest = Double.MAX_VALUE;
-		AABB searchBox = new AABB(start, end).inflate(1.0);
+		ItemStack round = new ItemStack(ModItems.AMMO_9MM);
+		round.set(DataComponents.ITEM_MODEL, Glock19Mod.id("bullet"));
+		BulletEntity bullet = new BulletEntity(level, player, round);
+		bullet.setPos(muzzle);
+		bullet.shoot(direction.x, direction.y, direction.z, BULLET_SPEED, BULLET_INACCURACY);
+		level.addFreshEntity(bullet);
 
-		for (Entity entity : level.getEntities(player, searchBox, e -> e.isPickable() && !e.isSpectator() && e.isAlive())) {
-			Optional<Vec3> hit = entity.getBoundingBox().inflate(entity.getPickRadius() + 0.1).clip(start, end);
-
-			if (hit.isPresent()) {
-				double distance = start.distanceToSqr(hit.get());
-
-				if (distance < closest) {
-					closest = distance;
-					target = entity;
-				}
-			}
-		}
-
-		Vec3 muzzle = start.add(direction.scale(0.9)).add(0.0, -0.15, 0.0);
-		level.sendParticles(ParticleTypes.SMOKE, muzzle.x, muzzle.y, muzzle.z, 3, 0.02, 0.02, 0.02, 0.01);
 		level.playSound(null, player.getX(), player.getEyeY(), player.getZ(), ModSounds.GLOCK_SHOOT, SoundSource.PLAYERS, 1.6F,
 				0.95F + player.getRandom().nextFloat() * 0.1F);
-
-		if (target != null) {
-			// Let follow-up shots land instead of being eaten by hurt invulnerability.
-			target.invulnerableTime = 0;
-			target.hurtServer(level, level.damageSources().playerAttack(player), DAMAGE);
-			Vec3 at = target.getBoundingBox().getCenter();
-			level.sendParticles(ParticleTypes.DAMAGE_INDICATOR, at.x, at.y, at.z, 4, 0.15, 0.15, 0.15, 0.1);
-		} else if (blockHit.getType() == HitResult.Type.BLOCK) {
-			Vec3 at = blockHit.getLocation();
-			BlockParticleOption dust = new BlockParticleOption(ParticleTypes.BLOCK, level.getBlockState(blockHit.getBlockPos()));
-			level.sendParticles(dust, at.x, at.y, at.z, 8, 0.05, 0.05, 0.05, 0.1);
-			level.sendParticles(ParticleTypes.SMOKE, at.x, at.y, at.z, 2, 0.02, 0.02, 0.02, 0.01);
-		}
 	}
 
 	/** Server side: refill the magazine in the main hand from 9mm rounds in the inventory. */
