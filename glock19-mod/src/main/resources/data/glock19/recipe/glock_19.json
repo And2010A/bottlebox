@@ -1,0 +1,19 @@
+{
+	"type": "minecraft:crafting_shaped",
+	"category": "equipment",
+	"pattern": [
+		"III",
+		" RT",
+		" B "
+	],
+	"key": {
+		"I": "minecraft:iron_ingot",
+		"R": "minecraft:redstone",
+		"T": "minecraft:tripwire_hook",
+		"B": "minecraft:black_dye"
+	},
+	"result": {
+		"id": "glock19:glock_19",
+		"count": 1
+	}
+}

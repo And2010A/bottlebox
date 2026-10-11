@@ -1,0 +1,14 @@
+{
+	"item.glock_19.shoot": {
+		"subtitle": "subtitles.glock19.shoot",
+		"sounds": ["glock19:glock_shot_1", "glock19:glock_shot_2", "glock19:glock_shot_3"]
+	},
+	"item.glock_19.empty": {
+		"subtitle": "subtitles.glock19.empty",
+		"sounds": ["glock19:glock_empty"]
+	},
+	"item.glock_19.reload": {
+		"subtitle": "subtitles.glock19.reload",
+		"sounds": ["glock19:glock_reload"]
+	}
+}

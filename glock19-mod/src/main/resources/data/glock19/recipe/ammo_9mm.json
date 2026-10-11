@@ -1,0 +1,13 @@
+{
+	"type": "minecraft:crafting_shapeless",
+	"category": "equipment",
+	"ingredients": [
+		"minecraft:copper_ingot",
+		"minecraft:gunpowder",
+		"minecraft:iron_nugget"
+	],
+	"result": {
+		"id": "glock19:ammo_9mm",
+		"count": 16
+	}
+}

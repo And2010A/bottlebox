@@ -1,0 +1,38 @@
+# Builds the Glock 19 Fabric mod and uploads the jar as an artifact.
+name: glock19-mod build
+on:
+  push:
+    paths:
+      - 'glock19-mod/**'
+      - '.github/workflows/glock19-build.yml'
+  pull_request:
+    paths:
+      - 'glock19-mod/**'
+      - '.github/workflows/glock19-build.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: glock19-mod
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - name: make gradle wrapper executable
+        run: chmod +x ./gradlew
+      - name: build
+        run: ./gradlew build
+      - name: capture build artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: glock19-mod
+          path: glock19-mod/build/libs/

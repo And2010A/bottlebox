@@ -1,0 +1,12 @@
+{
+	"item.glock19.glock_19": "Glock 19",
+	"item.glock19.ammo_9mm": "9mm Round",
+	"key.glock19.reload": "Reload",
+	"key.category.glock19.glock19": "Glock 19",
+	"hud.glock19.reloading": "RELOADING",
+	"hud.glock19.press_reload": "Press %s to reload",
+	"message.glock19.no_ammo": "No 9mm rounds",
+	"subtitles.glock19.shoot": "Glock fires",
+	"subtitles.glock19.empty": "Glock clicks empty",
+	"subtitles.glock19.reload": "Glock reloads"
+}

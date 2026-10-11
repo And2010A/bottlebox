@@ -1,0 +1,27 @@
+{
+	"schemaVersion": 1,
+	"id": "glock19",
+	"version": "${version}",
+	"name": "Glock 19",
+	"description": "A Glock 19 pistol with a 3D model, custom sounds, a 15-round magazine and an ammo HUD.",
+	"authors": [
+		"And2010A"
+	],
+	"license": "CC0-1.0",
+	"icon": "assets/glock19/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.bottlebox.glock19.Glock19Mod"
+		],
+		"client": [
+			"com.bottlebox.glock19.client.Glock19Client"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
