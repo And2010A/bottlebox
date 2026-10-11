@@ -17,6 +17,8 @@ import com.bottlebox.glock19.entity.BulletEntity;
  * at full brightness so the tracer glows.
  */
 public class BulletRenderer extends ThrownItemRenderer<BulletEntity> {
+	private static final double MIN_DISTANCE_SQ = 1.5 * 1.5;
+
 	public BulletRenderer(EntityRendererProvider.Context context) {
 		super(context, 1.0F, true);
 	}
@@ -36,6 +38,11 @@ public class BulletRenderer extends ThrownItemRenderer<BulletEntity> {
 
 	@Override
 	public void submit(ThrownItemRenderState state, PoseStack poseStack, SubmitNodeCollector nodeCollector, CameraRenderState camera) {
+		// Right out of the muzzle the trail would sweep across the camera; show it once it is clear.
+		if (state.distanceToCameraSq < MIN_DISTANCE_SQ) {
+			return;
+		}
+
 		State bullet = (State) state;
 		poseStack.pushPose();
 		// The model points along +x, so turn it the same way vanilla turns arrows.

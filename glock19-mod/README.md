@@ -6,7 +6,8 @@ Adds a Glock 19 pistol with a 3D held model, custom sounds, a 15-round magazine 
 |---|---|
 | **Fire** | Right-click (semi-auto; holding fires about 5 rounds/s) |
 | **Reload** | `R` (rebindable under Options → Controls → Glock 19) |
-| **Damage** | 6 (3 hearts), hitscan, 64-block range |
+| **Damage** | 6 (3 hearts) per bullet |
+| **Bullets** | Real projectiles with a glowing tracer, 3.5 blocks/tick with slight drop, aimed to converge on the crosshair; they chip blocks they hit |
 | **Ammo** | `9mm Round` items in your inventory; creative mode reloads for free |
 
 ## Items and recipes
@@ -26,7 +27,10 @@ Both items also appear in the Combat creative tab.
   and the slide is racked, timed to the reload sound. Each shot kicks the slide back and flips the muzzle.
   The gun is drawn as three models (`glock_19_frame`, `glock_19_slide`, `glock_19_mag`) so the parts can
   move on their own (`GunAnimator`, hooked in by `ItemInHandRendererMixin`).
-- `assets/glock19/sounds/`: three gunshot variants, an empty-magazine click and a reload sequence.
+- `assets/glock19/sounds/`: three gunshot variants, an empty-magazine click, a reload sequence and two bullet
+  impacts. The reload is built from modelled parts (polymer and steel resonances, stick-slip friction, a
+  small-room reverb): release button, magazine out, new magazine seated, slide racked and slammed home.
+- `entity/BulletEntity` + `client/BulletRenderer`: the bullet in flight, drawn from `models/item/bullet.json`.
 - HUD (bottom left while holding the gun): magazine count, reserve rounds, one pip per round, and a reload bar.
 
 ## Building
