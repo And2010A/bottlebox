@@ -67,9 +67,11 @@ public final class GunAnimator {
 		float side = rightHand ? 1.0F : -1.0F;
 
 		poseStack.pushPose();
-		poseStack.translate(side * -0.08F * tilt, 0.05F * tilt + 0.03F * seatBump, 0.025F * recoil);
-		poseStack.mulPose(Axis.ZP.rotationDegrees(side * 30.0F * tilt));
-		poseStack.mulPose(Axis.XP.rotationDegrees(14.0F * tilt + 9.0F * recoil + 4.0F * seatBump));
+		// Reload: lift the gun towards the middle of the screen and roll the magwell inwards so the
+		// magazine change is in view.
+		poseStack.translate(side * -0.12F * tilt, 0.11F * tilt + 0.03F * seatBump, 0.025F * recoil);
+		poseStack.mulPose(Axis.ZP.rotationDegrees(side * -38.0F * tilt));
+		poseStack.mulPose(Axis.XP.rotationDegrees(10.0F * tilt + 9.0F * recoil + 4.0F * seatBump));
 
 		renderer.render(part(stack, FRAME), poseStack);
 
