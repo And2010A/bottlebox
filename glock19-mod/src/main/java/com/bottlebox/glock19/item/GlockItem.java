@@ -34,6 +34,9 @@ public class GlockItem extends Item {
 	private static final float SPREAD = 0.012F;
 	private static final float RECOIL_DEGREES = 2.5F;
 
+	/** Client only: game time of the local player's last shot, drives the first-person recoil animation. */
+	public static long lastClientShotTime = Long.MIN_VALUE;
+
 	public GlockItem(Properties properties) {
 		super(properties);
 	}
@@ -78,6 +81,7 @@ public class GlockItem extends Item {
 			fire(serverLevel, player);
 		} else {
 			// Camera kick on the shooter's own client.
+			lastClientShotTime = level.getGameTime();
 			player.setXRot(player.getXRot() - RECOIL_DEGREES);
 			player.setYRot(player.getYRot() + (player.getRandom().nextFloat() - 0.5F) * RECOIL_DEGREES * 0.4F);
 		}

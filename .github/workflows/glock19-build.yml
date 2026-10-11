@@ -36,3 +36,46 @@ jobs:
         with:
           name: glock19-mod
           path: glock19-mod/build/libs/
+
+  client-test:
+    # Launches the game headless, fires and reloads the gun, and prints the screenshots
+    # into the log (base64 JPEG between IMG markers) so they can be read without artifact access.
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: glock19-mod
+    steps:
+      - name: checkout repository
+        uses: actions/checkout@v6
+      - name: setup jdk
+        uses: actions/setup-java@v5
+        with:
+          java-version: '25'
+          distribution: 'microsoft'
+      - name: run client game test
+        run: |
+          chmod +x ./gradlew
+          ./gradlew runClientGameTest --stacktrace
+      - name: print hand renderer signatures
+        if: always()
+        run: |
+          for jar in $(find ~/.gradle/caches .gradle -name '*.jar' -path '*minecraft*' 2>/dev/null | grep -v sources); do
+            if unzip -l "$jar" 2>/dev/null | grep -q 'net/minecraft/client/renderer/ItemInHandRenderer.class'; then
+              javap -p -cp "$jar" net.minecraft.client.renderer.ItemInHandRenderer | grep -E 'renderItem|renderArmWithItem' && break
+            fi
+          done
+      - name: print screenshots
+        if: always()
+        run: |
+          command -v convert >/dev/null || (sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick)
+          for f in build/run/clientGameTest/screenshots/*.png; do
+            [ -e "$f" ] || continue
+            convert "$f" -resize 560x -quality 72 /tmp/shot.jpg
+            echo "IMG $(basename "$f" .png) $(base64 -w0 /tmp/shot.jpg)"
+          done
+      - name: upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: client-test-screenshots
+          path: glock19-mod/build/run/clientGameTest/screenshots/

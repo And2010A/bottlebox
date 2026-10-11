@@ -18,6 +18,12 @@
 			"com.bottlebox.glock19.client.Glock19Client"
 		]
 	},
+	"mixins": [
+		{
+			"config": "glock19.client.mixins.json",
+			"environment": "client"
+		}
+	],
 	"depends": {
 		"fabricloader": ">=0.16.0",
 		"minecraft": "~1.21.11",

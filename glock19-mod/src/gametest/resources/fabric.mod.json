@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "glock19-gametest",
+	"version": "1.0.0",
+	"name": "Glock 19 client game tests",
+	"environment": "client",
+	"entrypoints": {
+		"fabric-client-gametest": [
+			"com.bottlebox.glock19.test.Glock19ClientGameTest"
+		]
+	},
+	"depends": {
+		"glock19": "*"
+	}
+}

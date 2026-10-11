@@ -1,0 +1,11 @@
+{
+	"required": true,
+	"package": "com.bottlebox.glock19.client.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"ItemInHandRendererMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

@@ -22,6 +22,17 @@ loom {
 	}
 }
 
+fabricApi {
+	// Client game tests (src/gametest) launch the real game in CI and take screenshots.
+	// They are a separate mod and are not part of the released jar.
+	configureTests {
+		createSourceSet = true
+		modId = "glock19-gametest"
+		enableGameTests = false
+		eula = true
+	}
+}
+
 dependencies {
 	// To change the versions see the gradle.properties file
 	minecraft "com.mojang:minecraft:${project.minecraft_version}"
