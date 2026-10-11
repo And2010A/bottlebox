@@ -26,6 +26,13 @@ public final class GunAnimator {
 	private static final float GRIP_SIN = 0.383F;
 	private static final float GRIP_COS = 0.924F;
 	private static final float RECOIL_TICKS = 5.0F;
+	/**
+	 * Top of the grip in hand space: the firstperson_righthand translation (1.5, 4.6, -1.5) / 16, which is
+	 * where the model centre lands, plus the grip's offset from the centre (-5.3, +0.4 model units).
+	 */
+	private static final float HOLD_X = 1.5F / 16.0F;
+	private static final float HOLD_Y = 4.6F / 16.0F + 0.4F * UNIT;
+	private static final float HOLD_Z = -1.5F / 16.0F + 5.3F * UNIT;
 
 	/** Set while the parts are being drawn, so the mixin doesn't animate them again. */
 	public static boolean drawingParts;
@@ -68,10 +75,13 @@ public final class GunAnimator {
 
 		poseStack.pushPose();
 		// Reload: lift the gun towards the middle of the screen and roll the magwell inwards so the
-		// magazine change is in view.
-		poseStack.translate(side * -0.12F * tilt, 0.11F * tilt + 0.03F * seatBump, 0.025F * recoil);
+		// magazine change is in view. Rotations pivot on the top of the grip, where the hand is.
+		poseStack.translate(side * -0.10F * tilt, 0.08F * tilt + 0.03F * seatBump, 0.025F * recoil);
+		float pivotX = side * HOLD_X;
+		poseStack.translate(pivotX, HOLD_Y, HOLD_Z);
 		poseStack.mulPose(Axis.ZP.rotationDegrees(side * -38.0F * tilt));
 		poseStack.mulPose(Axis.XP.rotationDegrees(10.0F * tilt + 9.0F * recoil + 4.0F * seatBump));
+		poseStack.translate(-pivotX, -HOLD_Y, -HOLD_Z);
 
 		renderer.render(part(stack, FRAME), poseStack);
 
