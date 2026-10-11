@@ -76,11 +76,12 @@ public final class GunAnimator {
 		poseStack.pushPose();
 		// Reload: lift the gun towards the middle of the screen and roll the magwell inwards so the
 		// magazine change is in view. Rotations pivot on the top of the grip, where the hand is.
-		poseStack.translate(side * -0.10F * tilt, 0.08F * tilt + 0.03F * seatBump, 0.025F * recoil);
+		poseStack.translate(side * -0.12F * tilt, 0.12F * tilt + 0.03F * seatBump, 0.025F * recoil);
 		float pivotX = side * HOLD_X;
 		poseStack.translate(pivotX, HOLD_Y, HOLD_Z);
 		poseStack.mulPose(Axis.ZP.rotationDegrees(side * -38.0F * tilt));
-		poseStack.mulPose(Axis.XP.rotationDegrees(10.0F * tilt + 9.0F * recoil + 4.0F * seatBump));
+		// Negative X rotation lifts the muzzle (recoil flip, magazine seating bump).
+		poseStack.mulPose(Axis.XP.rotationDegrees(5.0F * tilt - 10.0F * recoil - 4.0F * seatBump));
 		poseStack.translate(-pivotX, -HOLD_Y, -HOLD_Z);
 
 		renderer.render(part(stack, FRAME), poseStack);

@@ -11,7 +11,7 @@ import net.minecraft.world.item.ItemStack;
 import com.bottlebox.glock19.ModItems;
 import com.bottlebox.glock19.item.GlockItem;
 
-/** Bottom-right ammo panel shown while a Glock 19 is in the main hand. */
+/** Ammo panel shown while a Glock 19 is in the main hand. */
 public final class AmmoHud {
 	private static final int PANEL = 0xB0101014;
 	private static final int BORDER = 0xFF3A3D44;
@@ -45,7 +45,8 @@ public final class AmmoHud {
 		int reserve = player.hasInfiniteMaterials() ? -1 : GlockItem.countReserve(player);
 		boolean reloading = GlockItem.isReloading(stack, mc.level);
 
-		int x = graphics.guiWidth() - WIDTH - 6;
+		// Bottom left, so the gun in the bottom-right corner stays visible.
+		int x = 6;
 		int y = graphics.guiHeight() - HEIGHT - 6;
 
 		graphics.fill(x, y, x + WIDTH, y + HEIGHT, PANEL);

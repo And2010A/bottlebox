@@ -22,7 +22,7 @@ Both items also appear in the Combat creative tab.
 - `assets/glock19/models/item/glock_19.json`: 3D model shown in first and third person (opens in Blockbench).
   The inventory and dropped-item views use the pixel-art icon `glock_19_icon.png`.
 - `assets/glock19/sounds/`: three gunshot variants, an empty-magazine click and a reload sequence.
-- HUD (bottom right while holding the gun): magazine count, reserve rounds, one pip per round, and a reload bar.
+- HUD (bottom left while holding the gun): magazine count, reserve rounds, one pip per round, and a reload bar.
 
 ## Building
 
