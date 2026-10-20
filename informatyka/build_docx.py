@@ -431,10 +431,40 @@ def variant2():
     return "".join(b)
 
 
+# ---------------------------------------------------------------- каталог рамок-малюнків
+
+BORDER_CANDIDATES = [
+    "swirligig", "hypnotic", "circlesLines", "circlesRectangles", "compass", "fans",
+    "triangleCircle1", "triangleCircle2", "rings", "moons", "ovals", "sun", "quadrants",
+    "eclipsingSquares1", "eclipsingSquares2", "shapes1", "shapes2", "gems", "xIllusions",
+    "cakeSlice", "mosaic", "doubleD", "earth1", "earth2",
+]
+
+
+def border_catalog():
+    """По одній сторінці на кожну рамку: розділ з власною межею сторінки і підписом."""
+    out = []
+    last = len(BORDER_CANDIDATES) - 1
+    for k, art in enumerate(BORDER_CANDIDATES):
+        out.append(p([r(f"№ {k + 1}", font=ARIAL, sz=40, b=True)], jc="center", before=200))
+        label = p([r(f"рамка «{art}»", font=ARIAL, sz=20)], jc="center")
+        if k == last:
+            out.append(label)
+            continue
+        sect = (f'<w:sectPr><w:type w:val="nextPage"/><w:pgSz w:w="11906" w:h="16838"/>'
+                f'<w:pgMar w:top="{cm(1.5)}" w:right="{cm(2.0)}" w:bottom="{cm(1.5)}" '
+                f'w:left="{cm(2.5)}" w:header="{cm(1.0)}" w:footer="{cm(0.7)}" w:gutter="0"/>'
+                f'{page_border(art, 16, BLACK)}<w:cols w:space="708"/></w:sectPr>')
+        out.append(label.replace("</w:pPr>", f"{sect}</w:pPr>", 1))
+    return "".join(out), page_border(BORDER_CANDIDATES[last], 16, BLACK)
+
+
 if __name__ == "__main__":
-    # обидві рамки — вбудовані «Малюнки» Word (Конструктор → Межі сторінок → Малюнок)
+    # обидві рамки — вбудовані «Рисунки» Word (Разметка страницы → Границы страниц → Рисунок)
     write_docx(os.path.join(HERE, "Variant_1.docx"), variant1(),
                page_border("musicNotes", 18, PURPLE))
     write_docx(os.path.join(HERE, "Variant_2.docx"), variant2(),
-               page_border("quadrants", 16, RED))
+               page_border("swirligig", 16, RED))
+    catalog, last_border = border_catalog()
+    write_docx(os.path.join(HERE, "Ramky_vybir.docx"), catalog, last_border)
     print("ok")
