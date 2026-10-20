@@ -464,7 +464,7 @@ if __name__ == "__main__":
     write_docx(os.path.join(HERE, "Variant_1.docx"), variant1(),
                page_border("musicNotes", 18, PURPLE))
     write_docx(os.path.join(HERE, "Variant_2.docx"), variant2(),
-               page_border("swirligig", 16, RED))
+               page_border("rings", 16, RED))
     catalog, last_border = border_catalog()
     write_docx(os.path.join(HERE, "Ramky_vybir.docx"), catalog, last_border)
     print("ok")
