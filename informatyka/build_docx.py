@@ -2,7 +2,7 @@
 
 Запуск: python3 build_docx.py  -> Variant_1.docx, Variant_2.docx поруч зі скриптом.
 Документ збирається з «сирого» OOXML, щоб були доступні межі-малюнки сторінки,
-хвилясті рамки, тінь, межі навколо окремих слів, буквиця, написи в колонтитулі тощо.
+точкові рамки з тінню, межі навколо окремих слів, буквиця тощо.
 """
 import os
 import zipfile
@@ -16,16 +16,12 @@ ARIAL_BLACK = "Arial Black"
 COURIER = "Courier New"
 BOOKMAN = "Bookman Old Style"
 CORSIVA = "Monotype Corsiva"
-SEGOE_SYM = "Segoe UI Symbol"
 
 # «Студентська» мішана палітра (HEX = RGB з інструкції)
 RED = "C00000"        # темно-червоний
 ORANGE = "C55A11"     # темно-помаранчевий
-BROWN = "833C0B"      # коричневий
 PURPLE = "7030A0"     # фіолетовий
 BLUE = "0070C0"       # синій
-NAVY = "002060"       # темно-синій
-GREEN = "00B050"      # зелений
 DGREEN = "548235"     # темно-зелений
 L_YELLOW = "FFF2CC"   # світло-жовтий
 L_GREEN = "E2EFDA"    # світло-зелений
@@ -33,16 +29,15 @@ L_BLUE = "DEEBF7"     # світло-блакитний
 L_PEACH = "FBE5D6"    # світло-персиковий
 PEACH = "F8CBAD"      # персиковий
 GOLD = "FFE699"       # жовтий
-LILAC = "E4DFEC"      # світло-бузковий
 BLACK = "000000"
 
 # ---------------------------------------------------------------- run / paragraph helpers
 
 
 def rpr(font=None, sz=None, b=False, i=False, u=None, caps=False, small_caps=False,
-        strike=False, color=None, spacing=None, position=None, shd=None, bdr=None,
-        va=None):
-    """sz — у пунктах; spacing/position — у пунктах (розріджений інтервал / зміщення)."""
+        strike=False, color=None, spacing=None, scale=None, position=None, shd=None,
+        bdr=None, va=None):
+    """sz, spacing, position — у пунктах; scale — масштаб у % (Ctrl+D → Додатково → Масштаб)."""
     x = []
     if font:
         x.append(f'<w:rFonts w:ascii="{font}" w:hAnsi="{font}" w:cs="{font}"/>')
@@ -60,6 +55,8 @@ def rpr(font=None, sz=None, b=False, i=False, u=None, caps=False, small_caps=Fal
         x.append(f'<w:color w:val="{color}"/>')
     if spacing:
         x.append(f'<w:spacing w:val="{int(spacing * 20)}"/>')
+    if scale:
+        x.append(f'<w:w w:val="{scale}"/>')
     if position:
         x.append(f'<w:position w:val="{int(position * 2)}"/>')
     if sz:
@@ -137,10 +134,10 @@ def drop_cap(letter, font, sz, line_twips, color, position=0):
              frame=frame, line=("exact", line_twips), keep_next=True)
 
 
-def heading_box(text, font, sz, spacing, fill, line_color, text_color, jc="left",
+def heading_box(text, font, sz, spacing, fill, line_color, jc="left",
                 before=8, after=6):
     """Заголовок у рамці з тінню та заливкою (Межі та заливка → Тінь)."""
-    return p([r(text, font=font, sz=sz, b=True, spacing=spacing, color=text_color)], jc=jc,
+    return p([r(text, font=font, sz=sz, b=True, spacing=spacing)], jc=jc,
              pbdr=box(1.5, line_color, shadow=True), shd=fill, before=before, after=after,
              keep_next=True)
 
@@ -175,13 +172,13 @@ NO_BORDERS = ('<w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/>'
 TEXT_WIDTH = 9354  # 21 − 2,5 − 2 = 16,5 см
 
 
-def wavy_heading(runs, fill, wave_color, before=5, after=3):
+def dotted_heading(runs, fill, dot_color, before=5, after=3):
     """Штрихова (точкова) рамка + товста «тінь» справа і знизу, як на аркуші Варіанта 2.
 
     Таблиця 1×1: у клітинки лише права і нижня межі (товста лінія 3 пт),
     а всередині — абзац із точковою рамкою 1½ пт і заливкою.
     """
-    inner = p(runs, jc="center", pbdr=box(1.5, wave_color, shadow=False, val="dotted",
+    inner = p(runs, jc="center", pbdr=box(1.5, dot_color, shadow=False, val="dotted",
                                           space=2), shd=fill, keep_next=True)
     borders = ('<w:top w:val="nil"/><w:left w:val="nil"/>'
                '<w:bottom w:val="single" w:sz="24" w:space="0" w:color="000000"/>'
@@ -193,59 +190,11 @@ def wavy_heading(runs, fill, wave_color, before=5, after=3):
             + gap_after)
 
 
-# ---------------------------------------------------------------- рамка зі знаків радіації
-
-PT = 12700  # EMU в одному пункті
-PAGE_W, PAGE_H = 595.3, 841.9  # A4 у пунктах
-RAD_INSET, RAD_THICK, RAD_SZ = 17, 19, 14  # відступ від краю, товщина смуги, розмір знака
-RAD_ROW, RAD_COL = 33, 45                   # кількість знаків у рядку / стовпці
-
-
-def textbox(shape_id, name, x, y, w, h, paras):
-    """Напис (Вставлення → Текстове поле) без контуру й заливки, прив'язаний до сторінки."""
-    return (
-        '<w:r><w:drawing><wp:anchor distT="0" distB="0" distL="0" distR="0" simplePos="0" '
-        f'relativeHeight="{251658240 + shape_id}" behindDoc="1" locked="0" layoutInCell="1" '
-        'allowOverlap="1"><wp:simplePos x="0" y="0"/>'
-        f'<wp:positionH relativeFrom="page"><wp:posOffset>{int(x * PT)}</wp:posOffset></wp:positionH>'
-        f'<wp:positionV relativeFrom="page"><wp:posOffset>{int(y * PT)}</wp:posOffset></wp:positionV>'
-        f'<wp:extent cx="{int(w * PT)}" cy="{int(h * PT)}"/><wp:effectExtent l="0" t="0" r="0" b="0"/>'
-        f'<wp:wrapNone/><wp:docPr id="{shape_id}" name="{name}"/><wp:cNvGraphicFramePr/>'
-        '<a:graphic><a:graphicData uri="http://schemas.microsoft.com/office/word/2010/wordprocessingShape">'
-        '<wps:wsp><wps:cNvSpPr txBox="1"/><wps:spPr>'
-        f'<a:xfrm><a:off x="0" y="0"/><a:ext cx="{int(w * PT)}" cy="{int(h * PT)}"/></a:xfrm>'
-        '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/><a:ln><a:noFill/></a:ln>'
-        f'</wps:spPr><wps:txbx><w:txbxContent>{paras}</w:txbxContent></wps:txbx>'
-        '<wps:bodyPr rot="0" vert="horz" wrap="square" lIns="0" tIns="0" rIns="0" bIns="0" '
-        'anchor="t" anchorCtr="0"><a:noAutofit/></wps:bodyPr></wps:wsp>'
-        '</a:graphicData></a:graphic></wp:anchor></w:drawing></w:r>')
-
-
-def radiation_frame(color):
-    """Чотири написи по краях сторінки, заповнені знаками ☢ (U+2622)."""
-    s = dict(font=SEGOE_SYM, sz=RAD_SZ, color=color)
-    e, t = RAD_INSET, RAD_THICK
-    inner_h = PAGE_H - 2 * e - 2 * t
-    line = int(inner_h / RAD_COL * 20)
-    row = p([r("☢" * RAD_ROW, **s)], jc="distribute", line=("exact", int(t * 20)))
-    col = "".join(p([r("☢", **s)], jc="center", line=("exact", line)) for _ in range(RAD_COL))
-    w = PAGE_W - 2 * e
-    return "".join([
-        textbox(101, "Радіація зверху", e, e, w, t, row),
-        textbox(102, "Радіація знизу", e, PAGE_H - e - t, w, t, row),
-        textbox(103, "Радіація зліва", e, e + t, t, inner_h, col),
-        textbox(104, "Радіація справа", PAGE_W - e - t, e + t, t, inner_h, col),
-    ])
-
-
 # ---------------------------------------------------------------- package
 
 
 NS = ('xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" '
-      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" '
-      'xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" '
-      'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
-      'xmlns:wps="http://schemas.microsoft.com/office/word/2010/wordprocessingShape"')
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"')
 
 
 def styles_xml():
@@ -257,7 +206,6 @@ def styles_xml():
 <w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="240" w:lineRule="auto"/></w:pPr></w:pPrDefault>
 </w:docDefaults>
 <w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/></w:style>
-<w:style w:type="paragraph" w:styleId="Header"><w:name w:val="header"/><w:basedOn w:val="Normal"/></w:style>
 <w:style w:type="table" w:default="1" w:styleId="TableNormal"><w:name w:val="Normal Table"/>
 <w:tblPr><w:tblInd w:w="0" w:type="dxa"/><w:tblCellMar><w:top w:w="0" w:type="dxa"/>
 <w:left w:w="108" w:type="dxa"/><w:bottom w:w="0" w:type="dxa"/><w:right w:w="108" w:type="dxa"/>
@@ -265,11 +213,9 @@ def styles_xml():
 </w:styles>'''
 
 
-def write_docx(path, body, page_border="", header_runs=None):
-    head_ref = ('<w:headerReference w:type="default" r:id="rIdHeader"/>'
-                if header_runs else "")
+def write_docx(path, body, page_border):
     sect = (
-        f'<w:sectPr>{head_ref}<w:pgSz w:w="11906" w:h="16838"/>'
+        f'<w:sectPr><w:pgSz w:w="11906" w:h="16838"/>'
         f'<w:pgMar w:top="{cm(1.5)}" w:right="{cm(2.0)}" w:bottom="{cm(1.5)}" w:left="{cm(2.5)}" '
         f'w:header="{cm(1.0)}" w:footer="{cm(0.7)}" w:gutter="0"/>'
         f'{page_border}<w:cols w:space="708"/></w:sectPr>')
@@ -277,15 +223,7 @@ def write_docx(path, body, page_border="", header_runs=None):
                 f'<w:document {NS}><w:body>{body}{sect}</w:body></w:document>')
     rels = ('<Relationship Id="rIdStyles" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
             '<Relationship Id="rIdSettings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/settings" Target="settings.xml"/>')
-    overrides = ""
     files = {}
-    if header_runs:
-        rels += ('<Relationship Id="rIdHeader" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>')
-        overrides = ('<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>')
-        hp = (f'<w:p><w:pPr><w:pStyle w:val="Header"/><w:spacing w:line="20" w:lineRule="exact"/>'
-              f'<w:rPr><w:sz w:val="2"/></w:rPr></w:pPr>{header_runs}</w:p>')
-        files["word/header1.xml"] = (f'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-                                     f'<w:hdr {NS}>{hp}</w:hdr>')
     files.update({
         "[Content_Types].xml": f'''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
@@ -294,7 +232,7 @@ def write_docx(path, body, page_border="", header_runs=None):
 <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
 <Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>
 <Override PartName="/word/settings.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.settings+xml"/>
-{overrides}</Types>''',
+</Types>''',
         "_rels/.rels": '''<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
 <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
@@ -320,31 +258,28 @@ def page_border(art, width_pt, color, space=20):
 
 
 # ---------------------------------------------------------------- Варіант 1
+# Текст чорний, як на аркуші; кольорові лише заливки, рамки й лінії.
 
 
 def variant1():
     b = []
-    b.append(p([r("Варіант 1", font=ARIAL, sz=16, b=True, color=RED)], jc="center"))
-    # смуга під «Варіант 1» + «Білет № 14» справа: таблиця 2×1 без меж
-    band = p([], line=("exact", 20))
-    ticket = p([r("Білет № 14", font=ARIAL, sz=14, b=True, color=PURPLE)], jc="right")
-    b.append(table([[band, ticket]], [6804, 2550], NO_BORDERS, fills=[PEACH, None],
-                   cell_mar=(0, 0, 0, 0), height=cm(0.6)))
+    b.append(p([r("Варіант 1", font=ARIAL, sz=16, b=True)], jc="center", shd=PEACH,
+               right=3.0))
+    b.append(p([r("Білет № 14", font=ARIAL, sz=14, b=True)], jc="right", after=4))
     b.append(p([r("Системи опрацювання текстів. Призначення, основні функції "
                   "текстових редакторів. Система команд.", font=ARIAL, sz=13, b=True,
-                  small_caps=True, color=NAVY)], jc="center", left=1, right=1, before=6,
-               after=6))
+                  small_caps=True)], jc="center", left=1, right=1, after=6))
     b.append(p([
         r("Текстові редактори", font=BOOKMAN, color="FFFFFF", shd=PURPLE),
         r(" (ТР) - програми для підготовки "), r("текстових", i=True),
         r(" документів. ТР застосовуються: у діловодстві, редакційно-видавничій діяльності, "
           "у побуті тощо. "),
         r("Текстові процесори", font=BOOKMAN, color="FFFFFF", shd=DGREEN),
-        r(" (ТП) - потужні ТР, що мають "), r("розширені", i=True, u="single", color=BLUE),
+        r(" (ТП) - потужні ТР, що мають "), r("розширені", i=True, u="single"),
         r(" можливості."),
     ], jc="both"))
     b.append(heading_box("Основні функції текстових процесорів", COURIER, 12, 3,
-                         L_YELLOW, ORANGE, BROWN))
+                         L_YELLOW, ORANGE))
     bar = border("left", "single", 4.5, PURPLE, 12)
     for t in ["Введення тексту.",
               "Редагування тексту (переміщення, виділення, копіювання, перенесення).",
@@ -354,53 +289,50 @@ def variant1():
               "Друкування тексту з заданою щільністю, якістю тощо."]:
         b.append(p([r(t)], jc="both", left=5.0, hanging=2.0, pbdr=bar))
     b.append(p([], line=("exact", 120)))
-    b.append(drop_cap("О", ARIAL, 54, 920, RED, position=-4))
+    b.append(drop_cap("О", ARIAL, 54, 920, BLACK, position=-4))
     b.append(p([
         r("днією з найпоширеніших операцій при роботі з документами є ", font=ARIAL, sz=13),
-        r("форматування", font=ARIAL, sz=13, b=True, i=True, u="single", color=BLUE),
+        r("форматування", font=ARIAL, sz=13, b=True, i=True, u="dotted"),
         r(" - зовнішнє виділення текстів із застосуванням параметрів ", font=ARIAL, sz=13),
-        r("шрифту, абзацу, сторінки", font=ARIAL, sz=13, spacing=5, color=ORANGE),
+        r("шрифту, абзацу, сторінки", font=ARIAL, sz=13, i=True, spacing=5),
     ], jc="both"))
     b.append(p([
-        r("Процедура форматування символів", b=True, i=True, u="single", color=DGREEN),
-        r(" включає вибір "), r("ТИПУ", font=ARIAL_BLACK, sz=12, color=PURPLE), r(", "),
+        r("Процедура форматування символів", b=True, i=True),
+        r(" включає вибір "), r("ТИПУ", font=ARIAL_BLACK, sz=12), r(", "),
         r("накреслення", i=True),
         r(", розміру і кольору шрифту; встановлення "),
-        r("інтервалів", font=BOOKMAN, b=True, spacing=1, color=BLUE),
+        r("інтервалів", font=BOOKMAN, b=True, scale=150, spacing=1),
         r(" між символами, вибір "),
-        r("засобу", bdr=border("bdr", "single", 0.75, GREEN, 0)),
+        r("засобу", bdr=border("bdr", "single", 0.75, BLACK, 0)),
         r(": "),
-        r("анімації", bdr=border("bdr", "dotted", 1.0, RED, 0)),
+        r("анімації", bdr=border("bdr", "dotted", 1.0, BLACK, 0)),
         r(" (обрамлення, виділення) окремих слів та фрагментів тексту, введення в текст "
           "спеціальних символів"),
-        sym("Wingdings", "4A", color=ORANGE),
+        sym("Wingdings", "4A"),
         r(" тощо."),
     ], jc="both", before=6, pbdr=border("bottom", "dashed", 1.0, PURPLE, 4)))
     b.append(p([r("Форматування абзаців передбачає їх вирівнювання, задавання відступів, "
                   "установлення інтервалів між рядками, контроль \"висячих\" рядків, "
                   "форматування табуляцією тощо.")], jc="both", first=2.5, before=6))
     b.append(heading_box("Пересування курсору по документу за допомогою:", COURIER, 12, 2,
-                         L_GREEN, DGREEN, DGREEN))
-    b.append(p([r("Спосіб 1", u="single", color=RED), r(" - курсору миші"),
-                sym("Wingdings", "38", color=RED)]))
-    b.append(p([r("Спосіб 2", u="single", color=BLUE), r(" - лінійок прокрутки"),
-                sym("Wingdings", "49", color=BLUE)], jc="center"))
-    b.append(p([r("Спосіб 3", u="single", color=DGREEN), r(" - клавіш"),
-                sym("Wingdings", "37", color=DGREEN)], jc="right"))
-    b.append(heading_box("Робота з файлами", COURIER, 12, 6, L_BLUE, BLUE, NAVY, jc="center"))
-    cf = dict(font=CORSIVA, sz=13)
-    for label, icon, action in [("Створення нового документа:", "32", "Створити"),
-                                ("Відкриття документа:", "31", "Відкрити."),
-                                ("Збереження документа:", "3C", "Зберегти (Зберегти як...)")]:
+                         L_GREEN, DGREEN))
+    b.append(p([r("Спосіб 1", u="single"), r(" - курсору миші"), sym("Wingdings", "38")]))
+    b.append(p([r("Спосіб 2", u="single"), r(" - лінійок прокрутки"), sym("Wingdings", "49")],
+               jc="center"))
+    b.append(p([r("Спосіб 3", u="single"), r(" - клавіш"), sym("Wingdings", "37")], jc="right"))
+    b.append(heading_box("Робота з файлами", COURIER, 12, 6, L_BLUE, BLUE, jc="center"))
+    cf = dict(font=CORSIVA, sz=12)
+    for label, ic, action in [("Створення нового документа:", "32", "Створити"),
+                              ("Відкриття документа:", "31", "Відкрити."),
+                              ("Збереження документа:", "3C", "Зберегти (Зберегти як...)")]:
         b.append(p([
-            r(label, u="single", color=PURPLE, **cf), r(" кнопка ", **cf),
-            sym("Wingdings", icon, sz=13, color=BLUE),
+            r(label, u="single", **cf), r(" кнопка ", **cf), sym("Wingdings", ic, sz=12),
             r(" ", **cf), r("на", position=-3, **cf),
             r(" панелі швидкого доступу або Файл ", **cf),
-            sym("Symbol", "DE", sz=13, color=RED), r(" " + action, **cf),
+            sym("Symbol", "DE", sz=12), r(" " + action, **cf),
         ], after=4))
     b.append(p([r("Хмельницький політехнічний коледж. Навчальна дисципліна "
-                  "\"Інформатика\"", font=ARIAL, sz=12, b=True, spacing=-0.3, color=RED)],
+                  "\"Інформатика\"", font=ARIAL, sz=12, b=True, spacing=-0.3)],
                jc="center", pbdr=box(1.5, RED, shadow=True), shd=L_PEACH, before=10))
     return "".join(b)
 
@@ -410,27 +342,26 @@ def variant1():
 
 def variant2():
     b = []
-    b.append(p([r("Варіант 2", font=ARIAL, sz=16, b=True, color=NAVY)], jc="center",
-               shd=L_BLUE))
-    b.append(wavy_heading([
-        sym("Symbol", "A7", sz=14, color=GREEN),
+    b.append(p([r("Варіант 2", font=ARIAL, sz=16, b=True)], jc="center", shd=L_BLUE))
+    b.append(dotted_heading([
+        sym("Symbol", "A7", sz=13),
         r(" Основні теги мови HTML для створення гіпертекстового документа ",
-          font=ARIAL, sz=13, b=True, spacing=2, color=BROWN),
-        sym("Symbol", "A7", sz=14, color=GREEN)], L_YELLOW, ORANGE, before=4, after=4))
-    b.append(drop_cap("Д", TNR, 48, 900, BLUE))
+          font=ARIAL, sz=13, b=True, spacing=2),
+        sym("Symbol", "A7", sz=13)], L_YELLOW, ORANGE, before=4, after=4))
+    b.append(drop_cap("Д", TNR, 48, 900, BLACK))
     b.append(p([
         r("ля створення Web-сторінок використовуються спеціальні "),
-        r("мови розмітки", b=True, spacing=3, color=RED),
+        r("мови розмітки", b=True, spacing=3),
         r(", що дозволяють керувати форматуванням, розташуванням і функціональністю "
           "елементів, які містяться на сторінках. Найбільш поширеною у Web є мова  ("),
-        r("HYPER TEXT Markup Language-", font=ARIAL, small_caps=True, color=PURPLE),
+        r("HYPER TEXT Markup Language-", font=ARIAL, small_caps=True),
         r("мова гіпертекстової розмітки)."),
     ], jc="both"))
     b.append(p([
-        r("Документи HTML", b=True, i=True, color=DGREEN),
+        r("Документи HTML", b=True, i=True),
         r(" являють собою текст, у якому містяться спеціальні команди (або ТЕГИ), що "
           "визначають форматування сторінок і дозволяють розташовувати на ній "),
-        r("гіперпосилання", u="single", color=BLUE),
+        r("гіперпосилання", u="single"),
         r(", зображення, спеціальні елементи форматування і певну службову інформацію."),
     ], jc="both", left=4.2, hanging=2.3, right=0.5, before=4))
     b.append(p([r("Тег завжди міститься між дужками < > і має такий вигляд:", font=COURIER,
@@ -439,24 +370,24 @@ def variant2():
                pbdr=box(3.0, PURPLE, shadow=False, val="thickThinSmallGap"), left=0.3,
                right=0.3, after=6))
     b.append(p([r("Теги бувають "),
-                r("поодинокими і контейнерними", font=COURIER, b=True, spacing=1, color=RED),
+                r("поодинокими і контейнерними", font=COURIER, b=True, spacing=1),
                 r(". Контейнером називається пара відкриваючий <Тег> і закриваючий </ТЕГ>.")],
                jc="both", line=1.3, shd=L_GREEN,
                pbdr=border("left", "thickThinSmallGap", 4.5, DGREEN, 8)))
-    b.append(wavy_heading([
-        sym("Symbol", "A9", sz=14, color=RED),
-        r(" Структура простого HTML-документа ", font=ARIAL, sz=13, b=True, spacing=3,
-          color=NAVY),
-        sym("Symbol", "A9", sz=14, color=RED)], L_BLUE, BLUE))
+    b.append(dotted_heading([
+        sym("Symbol", "A9", sz=13),
+        r(" Структура простого HTML-документа ", font=ARIAL, sz=13, b=True, spacing=3),
+        sym("Symbol", "A9", sz=13)],
+        L_BLUE, BLUE))
     lines = ["<HTML> - Початок документа", "<HEAD>", "ЗАГОЛОВОК ДОКУМЕНТА", "</HEAD>",
              "<BODY>", "ТІЛО ДОКУМЕНТА", "</BODY>", "</HTML>"]
     for k, t in enumerate(lines):
         b.append(p([r(t, sz=12)], left=2.2, right=8.0, shd=GOLD if k % 2 else None))
-    b.append(wavy_heading([
-        sym("Symbol", "A8", sz=14, color=PURPLE),
-        r(" Теги стилістичного виділення тексту ", b=True, i=True, sz=13, spacing=3,
-          color=RED),
-        sym("Symbol", "A8", sz=14, color=PURPLE)], L_PEACH, RED))
+    b.append(dotted_heading([
+        sym("Symbol", "A8", sz=13),
+        r(" Теги стилістичного виділення тексту ", b=True, i=True, sz=13, spacing=3),
+        sym("Symbol", "A8", sz=13)],
+        L_PEACH, RED))
     s = dict(sz=12)
     b.append(p([r("<STRIKE>...</STRIKE> - Виділення перекреслюванням (", **s),
                 r("Помилка", strike=True, **s), r(")", **s)]))
@@ -472,39 +403,38 @@ def variant2():
                 r("січнева", va="subscript", **s), r(")", **s)]))
     a = dict(font=ARIAL, sz=12)
     n = dict(font=ARIAL, sz=11)
-    b.append(p([sym("Symbol", "AA", sz=11, color=BLUE), r(" ", **n),
-                r("НУМЕРОВАНИЙ", b=True, color=BLUE, **n),
+    b.append(p([sym("Symbol", "AA", sz=11), r(" ", **n), r("НУМЕРОВАНИЙ", b=True, **n),
                 r(" список починається з тега ", **n), r("<OL>", b=True, **n),
                 r(" і закривається тегом ", **n), r("</OL>", b=True, **n), r(". ", **n),
-                sym("Symbol", "AA", sz=11, color=BLUE)],
-               jc="center", pbdr=box(0.75, BLUE, shadow=False), shd=LILAC, left=0.5,
-               before=4, after=6))
+                sym("Symbol", "AA", sz=11)],
+               jc="center", pbdr=box(0.75, BLUE, shadow=False), left=0.5, before=4, after=6))
     side = (border("left", "double", 2.25, PURPLE, 6)
             + border("right", "double", 2.25, PURPLE, 6))
     b.append(p([r("Тег <OL> може мати такі параметри:", **a)], left=0.6, right=7.0,
                pbdr=side, after=4))
-    b.append(p([r("TYPE", b=True, color=RED, **a), r(" - вид лічильника:", **a)], left=1.2))
+    b.append(p([r("TYPE", b=True, **a), r(" - вид лічильника:", **a)], left=1.2))
     cells = [("A", "великі латинські літери"), ("a", "маленькі латинські літери"),
              ("I", "великі римські літери"), ("i", "маленькі римські літери"),
              ("1", "звичайні цифри")]
     t = dict(font=ARIAL, sz=11)
-    row = [p([r(k, b=True, color=RED, **t), r(" - " + v, **t)], jc="center") for k, v in cells]
+    row = [p([r(k, b=True, **t), r(" - " + v, **t)], jc="center") for k, v in cells]
     inside_v = ('<w:top w:val="nil"/><w:left w:val="nil"/><w:bottom w:val="nil"/>'
                 '<w:right w:val="nil"/><w:insideH w:val="nil"/>'
                 f'<w:insideV w:val="single" w:sz="8" w:space="0" w:color="{PURPLE}"/>')
     b.append(table([row], [1890, 1890, 1890, 1890, 1794], inside_v,
                    fills=[None, None, GOLD, None, None]))
-    b.append(p([r("START", b=True, color=RED, **a),
+    b.append(p([r("START", b=True, **a),
                 r(" - встановлює число,  яким буде починатися список.", **a)], left=1.2))
     b.append(p([r("Хмельницький політехнічний коледж. Навчальна дисципліна "
-                  "\"Інформатика\"", font=CORSIVA, sz=14, b=True, color=NAVY)],
+                  "\"Інформатика\"", font=CORSIVA, sz=14, b=True)],
                jc="center", shd=L_GREEN, before=6))
     return "".join(b)
 
 
 if __name__ == "__main__":
+    # обидві рамки — вбудовані «Малюнки» Word (Конструктор → Межі сторінок → Малюнок)
     write_docx(os.path.join(HERE, "Variant_1.docx"), variant1(),
-               page_border=page_border("musicNotes", 18, PURPLE))
+               page_border("musicNotes", 18, PURPLE))
     write_docx(os.path.join(HERE, "Variant_2.docx"), variant2(),
-               header_runs=radiation_frame(RED))
+               page_border("quadrants", 16, RED))
     print("ok")
